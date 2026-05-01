@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# App runtime data (local only)
+foundry.db
+files/
+
+# Streamlit secrets — never commit real keys
+.streamlit/secrets.toml
+
+# Local / IDE
+.cursor/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local sample uploads / binaries (not app source)
+/*.pdf
+/*.zip
