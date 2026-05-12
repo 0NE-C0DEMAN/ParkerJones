@@ -30,7 +30,7 @@
       const nextLine = items.length > 0 ? Math.max(...items.map((it) => it.line || 0)) + 1 : 1;
       onChange([
         ...items,
-        { line: nextLine, customer_part: '', vendor_part: '', description: '', quantity: 1, uom: 'EA', unit_price: 0, amount: 0, required_date: '' },
+        { line: nextLine, customer_part: '', vendor_part: '', description: '', quantity: 1, uom: 'EA', unit_price: 0, amount: 0, required_date: '', notes: '' },
       ]);
     };
 
@@ -53,6 +53,7 @@
                 <th style={{ width: 100 }} className="col-num">Unit Price</th>
                 <th style={{ width: 110 }} className="col-num">Amount</th>
                 <th style={{ width: 110 }}>Required</th>
+                <th style={{ minWidth: 160 }}>Notes</th>
                 <th style={{ width: 36 }} />
               </tr>
             </thead>
@@ -70,6 +71,7 @@
                     {formatCurrency(row.amount, currency)}
                   </td>
                   <td><CellInput type="date" value={row.required_date} onChange={(v) => updateRow(idx, { required_date: v })} /></td>
+                  <td><CellInput value={row.notes} onChange={(v) => updateRow(idx, { notes: v })} placeholder="—" /></td>
                   <td>
                     <button
                       type="button"

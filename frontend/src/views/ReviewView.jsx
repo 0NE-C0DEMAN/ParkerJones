@@ -95,11 +95,46 @@
               <Field label="Buyer email">
                 <Input type="email" value={data.buyer_email} onChange={(v) => updateField('buyer_email', v)} placeholder="email@company.com" />
               </Field>
-              <Field label="Payment terms">
-                <Autocomplete field="payment_terms" value={data.payment_terms} onChange={(v) => updateField('payment_terms', v)} placeholder="Net 30" />
+              <Field label="Buyer phone">
+                <Input value={data.buyer_phone || ''} onChange={(v) => updateField('buyer_phone', v)} placeholder="555-123-4567" />
+              </Field>
+              <Field label="Receiving contact" className="col-span-2">
+                <Input value={data.receiving_contact || ''} onChange={(v) => updateField('receiving_contact', v)} placeholder="Person at delivery location" />
+              </Field>
+              <Field label="Receiving phone">
+                <Input value={data.receiving_contact_phone || ''} onChange={(v) => updateField('receiving_contact_phone', v)} placeholder="555-123-4567" />
               </Field>
               <Field label="Status" className="col-span-3">
                 <StatusChooser status={data.status || 'received'} onChange={(s) => updateField('status', s)} />
+              </Field>
+            </div>
+          </div>
+        </Card>
+
+        <div className="section-heading mt-4">
+          <div className="section-heading-icon"><Icon name="dollar-sign" size={11} /></div>
+          Terms &amp; references
+        </div>
+        <Card noPadding className="mb-4">
+          <div style={{ padding: 16 }}>
+            <div className="form-grid-3">
+              <Field label="Payment terms">
+                <Autocomplete field="payment_terms" value={data.payment_terms} onChange={(v) => updateField('payment_terms', v)} placeholder="Net 30" />
+              </Field>
+              <Field label="Freight terms">
+                <Input value={data.freight_terms || ''} onChange={(v) => updateField('freight_terms', v)} placeholder="Prepaid and Allowed" />
+              </Field>
+              <Field label="Ship via">
+                <Input value={data.ship_via || ''} onChange={(v) => updateField('ship_via', v)} placeholder="Best Way / UPS / Carrier" />
+              </Field>
+              <Field label="F.O.B.">
+                <Input value={data.fob_terms || ''} onChange={(v) => updateField('fob_terms', v)} placeholder="Shipping Point / Destination" />
+              </Field>
+              <Field label="Quote #">
+                <Input value={data.quote_number || ''} onChange={(v) => updateField('quote_number', v)} placeholder="QUOTE-XXXX" style={{ fontFamily: 'JetBrains Mono' }} />
+              </Field>
+              <Field label="Contract #">
+                <Input value={data.contract_number || ''} onChange={(v) => updateField('contract_number', v)} placeholder="CONTRACT-XXXX" style={{ fontFamily: 'JetBrains Mono' }} />
               </Field>
             </div>
           </div>

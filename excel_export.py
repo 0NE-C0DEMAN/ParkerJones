@@ -51,40 +51,65 @@ def build_workbook(records: Iterable[dict]) -> io.BytesIO:
         ("Revision", 8),
         ("Customer", 28),
         ("Supplier", 28),
+        ("Supplier #", 12),
         ("Bill To", 36),
         ("Ship To", 36),
-        ("Payment Terms", 14),
+        ("Payment Terms", 16),
+        ("Freight Terms", 22),
+        ("Ship Via", 14),
+        ("F.O.B.", 16),
         ("Buyer", 18),
         ("Buyer Email", 26),
+        ("Buyer Phone", 16),
+        ("Receiving Contact", 22),
+        ("Receiving Phone", 16),
+        ("Quote #", 16),
+        ("Contract #", 14),
         ("Line Items", 11),
         ("Total", 14),
         ("Currency", 8),
         ("Source File", 28),
-        ("Notes", 24),
+        ("Notes", 32),
         ("Added", 18),
         ("Updated", 18),
     ]
     _style_header_row(ws1, columns_po)
 
     for r_idx, rec in enumerate(records, 2):
-        ws1.cell(row=r_idx, column=1, value=rec.get("po_number", ""))
-        ws1.cell(row=r_idx, column=2, value=rec.get("po_date", ""))
-        ws1.cell(row=r_idx, column=3, value=rec.get("revision", ""))
-        ws1.cell(row=r_idx, column=4, value=rec.get("customer", ""))
-        ws1.cell(row=r_idx, column=5, value=rec.get("supplier", ""))
-        ws1.cell(row=r_idx, column=6, value=_flatten(rec.get("bill_to")))
-        ws1.cell(row=r_idx, column=7, value=_flatten(rec.get("ship_to")))
-        ws1.cell(row=r_idx, column=8, value=rec.get("payment_terms", ""))
-        ws1.cell(row=r_idx, column=9, value=rec.get("buyer", ""))
-        ws1.cell(row=r_idx, column=10, value=rec.get("buyer_email", ""))
-        ws1.cell(row=r_idx, column=11, value=len(rec.get("line_items") or []))
-        total_cell = ws1.cell(row=r_idx, column=12, value=float(rec.get("total") or 0))
-        total_cell.number_format = '"$"#,##0.00'
-        ws1.cell(row=r_idx, column=13, value=rec.get("currency", "USD"))
-        ws1.cell(row=r_idx, column=14, value=rec.get("filename", ""))
-        ws1.cell(row=r_idx, column=15, value=rec.get("notes", ""))
-        ws1.cell(row=r_idx, column=16, value=rec.get("added_at", ""))
-        ws1.cell(row=r_idx, column=17, value=rec.get("updated_at", ""))
+        col = 1
+        def put(value, number_format=None):
+            nonlocal col
+            c = ws1.cell(row=r_idx, column=col, value=value)
+            if number_format:
+                c.number_format = number_format
+            col += 1
+            return c
+        put(rec.get("po_number", ""))
+        put(rec.get("po_date", ""))
+        put(rec.get("revision", ""))
+        put(rec.get("customer", ""))
+        put(rec.get("supplier", ""))
+        put(rec.get("supplier_code", ""))
+        put(_flatten(rec.get("bill_to")))
+        put(_flatten(rec.get("ship_to")))
+        put(rec.get("payment_terms", ""))
+        put(rec.get("freight_terms", ""))
+        put(rec.get("ship_via", ""))
+        put(rec.get("fob_terms", ""))
+        put(rec.get("buyer", ""))
+        put(rec.get("buyer_email", ""))
+        put(rec.get("buyer_phone", ""))
+        put(rec.get("receiving_contact", ""))
+        put(rec.get("receiving_contact_phone", ""))
+        put(rec.get("quote_number", ""))
+        put(rec.get("contract_number", ""))
+        put(len(rec.get("line_items") or []))
+        put(float(rec.get("total") or 0), number_format='"$"#,##0.00')
+        put(rec.get("currency", "USD"))
+        put(rec.get("filename", ""))
+        put(_flatten(rec.get("notes")))
+        put(rec.get("added_at", ""))
+        put(rec.get("updated_at", ""))
 
     # ---------- Sheet 2: Line Items ----------
     ws2 = wb.create_sheet("Line Items")
@@ -102,6 +127,7 @@ def build_workbook(records: Iterable[dict]) -> io.BytesIO:
         ("Unit Price", 13),
         ("Amount", 14),
         ("Required Date", 14),
+        ("Notes", 32),
     ]
     _style_header_row(ws2, columns_lines)
 
@@ -122,6 +148,7 @@ def build_workbook(records: Iterable[dict]) -> io.BytesIO:
             amt_cell = ws2.cell(row=r_idx, column=11, value=float(it.get("amount") or 0))
             amt_cell.number_format = '"$"#,##0.00'
             ws2.cell(row=r_idx, column=12, value=it.get("required_date", ""))
+            ws2.cell(row=r_idx, column=13, value=_flatten(it.get("notes")))
             r_idx += 1
 
     buf = io.BytesIO()

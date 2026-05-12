@@ -5,7 +5,7 @@
   'use strict';
   const { confidenceFor } = window.App.utils;
 
-  function PartyField({ icon, label, value, onChange, addressValue, onAddressChange, addressPlaceholder, confidence, autocompleteField }) {
+  function PartyField({ icon, label, value, onChange, addressValue, onAddressChange, addressPlaceholder, confidence, autocompleteField, codeValue, onCodeChange, codePlaceholder }) {
     const { Field, Input, Textarea, Confidence, Icon, Autocomplete } = window.App;
     return (
       <div className="card" style={{ padding: 14 }}>
@@ -30,6 +30,15 @@
             onChange={onChange}
             placeholder={`${label} name`}
             className="mb-2"
+          />
+        )}
+        {onCodeChange !== undefined && (
+          <Input
+            value={codeValue || ''}
+            onChange={onCodeChange}
+            placeholder={codePlaceholder || 'Account / vendor #'}
+            className="mb-2"
+            style={{ fontFamily: 'JetBrains Mono', fontSize: 12 }}
           />
         )}
         <Textarea
@@ -69,6 +78,9 @@
           addressPlaceholder="Supplier address"
           confidence={confidenceFor(data, 'supplier')}
           autocompleteField="supplier"
+          codeValue={data.supplier_code}
+          onCodeChange={update('supplier_code')}
+          codePlaceholder="Supplier # / vendor code"
         />
         <PartyField
           icon="map-pin"

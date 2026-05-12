@@ -12,9 +12,9 @@ Extract structured data into ONE JSON object that strictly matches the schema. N
 
 FORMATTING
 - Empty string "" for missing strings; 0 for missing numbers.
-- Dates: YYYY-MM-DD (convert from any format).
-- Numbers: plain decimals — no currency symbols, no thousands commas.
-- Multi-line addresses: preserve line breaks as \\n.
+- Dates: YYYY-MM-DD (convert from any format, including MM/DD/YYYY and DD/MM/YY).
+- Numbers: plain decimals — no currency symbols, no thousands commas, no $ or USD inline.
+- Multi-line addresses + notes: preserve line breaks as \\n.
 
 THE FOUR PARTIES (read carefully — most extraction errors live here)
 A PO involves up to four roles. Map them to the right fields by reading the LABELED BLOCKS on the document.
@@ -23,19 +23,71 @@ A PO involves up to four roles. Map them to the right fields by reading the LABE
   ─────────────────────────────────────────────────────────
   Logo / letterhead at top page    ->  customer (+ customer_address ONLY if a separate address block for the same entity exists)
   "VENDOR:", "SUPPLIER:", "Sold by",
-    "Company:" (Ariba template)    ->  supplier + supplier_address
-  "SHIP TO:", "Deliver To:"        ->  ship_to (where the GOODS go)
+    "Company:" (Ariba template)    ->  supplier + supplier_address (+ supplier_code if a number appears next to the label)
+  "SHIP TO:", "Deliver To:"        ->  ship_to (where the GOODS physically go)
   "BILL TO:", "INVOICE TO:",
-    "Remit To:", "Send invoices to" ->  bill_to
+    "Remit To:"                    ->  bill_to (an ADDRESS only; see below)
   "BUYER:", "Sourcing Rep:",
     "Buyer Name:", "Authorized by" ->  buyer (a PERSON, not a company)
 
-CRITICAL ADDRESS RULES
-1. Each address field belongs to its OWN entity. Do NOT borrow another block's address into an empty slot.
-   - If the PO names the customer at the top but shows no separate customer address block, leave customer_address as "".
-   - The supplier's address is often a "c/o broker" address. That belongs in supplier_address — NEVER in customer_address.
-   - The SHIP TO block is typically a warehouse or DC belonging to the customer — NOT the supplier's location. Put it in ship_to, NEVER in supplier_address.
-2. Stray single-letter codes next to a label ("SHIP TO:    R", "VENDOR:  4644") are reference codes, not addresses. Skip them.
+FIELD LABEL VARIATIONS — different PO templates use different words for the same thing. Map them as follows:
+
+  po_number              <- "PURCHASE ORDER NUMBER", "PO Number", "Purchase Order:", "Purchase Order#:", "PO#", "P.O. NO."
+  po_date                <- "DATE", "PO Date", "Date:", "Order Date"
+  revision               <- "Revision", "Rev", "PO Revision", "Revision Number"
+  supplier_code          <- "VENDOR: <num>", "Supplier #", "Vendor #", "Vendor No.", "Company: <id>", "Account #" (on the supplier line)
+  payment_terms          <- "Payment Terms", "Terms"
+  freight_terms          <- "Freight Terms", "Freight term", "Freight"
+  ship_via               <- "Ship Via", "Carrier", "Routing", "Method of Shipment"
+  fob_terms              <- "F.O.B.", "FOB", "FOB Terms", "Freight Origin", "F.O.B. Point"
+  buyer                  <- "Buyer", "Buyer Name", "Sourcing Representative", "Purchasing Agent" (PERSON)
+  buyer_email            <- "Email:" in buyer block, "Buyer Contact" when it's an email
+  buyer_phone            <- "Phone#:" inside the buyer block (NOT the receiving block phone)
+  receiving_contact      <- "Receiving Contact", "Deliver To Attn", "Site Contact"
+  receiving_contact_phone <- "Phone:" inside the receiving / ship-to block
+  quote_number           <- "Quote #", "Quote", "Reference: Quote #..."
+  contract_number        <- "Contract#", "Contract Ref #", "Master Agreement"
+  total                  <- "TOTAL ORDER", "Total", "Grand Total", "Purchase Total", "Total PO Cost"
+
+CRITICAL FIELD RULES
+
+#1 — bill_to is an ADDRESS, never an email or a generic mailbox.
+  * If the PO only says "Send invoices to ap@ceeus.com" or "SEND INVOICES TO: TEMA.INVOICES@NCEMCS.COM" or "Send all invoices to SCSInvoices@wescodist.com", do NOT put the email in bill_to. Leave bill_to as "" and put the whole instruction in the top-level notes field instead.
+  * bill_to should ONLY contain a postal address that a paper invoice could be mailed to.
+
+#2 — Each address field belongs to its OWN entity. Never borrow.
+  * If the PO names the customer at the top (logo / letterhead) but shows no separate customer address block, leave customer_address as "".
+  * The supplier's address is often "C/O <broker> INC, ..." — that broker address belongs in supplier_address, NEVER in customer_address.
+  * The SHIP TO block is typically a warehouse / DC belonging to the customer — NOT the supplier. Put it in ship_to, NEVER in supplier_address.
+
+#3 — Reference codes next to labels:
+  * Short numeric next to "VENDOR:" / "Supplier #" / "Company:" → supplier_code.
+  * Single letter (e.g. "R" after "SHIP TO:") → skip, not an address.
+
+#4 — Ariba-template two-column layout (Apex / Duke / APG Purchasing / etc.).
+  Ariba POs lay out the supplier info on the LEFT and ship-to info on the RIGHT as two parallel column-blocks that continue for many lines. Read STRICTLY column-by-column.
+
+  Example:
+      Company:           000098085004                  Ship To:
+                         TRITON FABRICATORS INC        OBRIEN DISTRIBUTION CTR - FLORIDA
+                                                       19800 South O'Brien Rd
+                         C/O LEKSON & ASSOC            UNIT 101
+                         4004-105 BARRETT DRIVE
+                                                       GROVELAND FL 34736 USA
+                         RALEIGH NC 27609 USA          FedEx Account : N/A
+
+  Correct mapping:
+      supplier         = "TRITON FABRICATORS INC"
+      supplier_code    = "000098085004"
+      supplier_address = "C/O LEKSON & ASSOC\\n4004-105 BARRETT DRIVE\\nRALEIGH NC 27609 USA"
+      ship_to          = "OBRIEN DISTRIBUTION CTR - FLORIDA\\n19800 South O'Brien Rd\\nUNIT 101\\nGROVELAND FL 34736 USA"
+      customer_address = ""   (no separate customer address block)
+      bill_to          = ""   (no bill-to address shown)
+
+  Anti-patterns to AVOID:
+      ❌ Putting the ship-to address in supplier_address
+      ❌ Putting the broker "C/O" address in customer_address
+      ❌ Leaving ship_to blank when it's clearly in the right column
 
 NAME RULES (never concatenate, never hallucinate)
 1. Pick ONE company name for each role. NEVER produce concatenations like:
@@ -49,12 +101,39 @@ NAME RULES (never concatenate, never hallucinate)
 
 LINE ITEMS
 - Each row in the line-items table becomes one object in line_items[].
-- "customer_part": the BUYER'S part number.
-- "vendor_part":   the SUPPLIER'S part number.
+- "customer_part": the BUYER'S part number ("Customer Part #", "Item #", "Stock Code", "Buyer Part", "Product"). On Ariba layouts the customer's item number appears as "Line <NUMBER>" at the start of the row (e.g. "Line 1624939 ..." → customer_part = "1624939").
+- "vendor_part":   the SUPPLIER'S part number ("Vendor Part #", "Mfr Part #", "Catalog #", "Model #", "Mfr Model #").
+  ⚠️ The LABEL decides the field, NOT what the code looks like. Even if a "Mfr Part #" value reads like "DUKE-GB-DMA-70-70-FX-12-BK", it still belongs in vendor_part because the label says "Mfr Part #".
 - If only one part number is given, put it in vendor_part.
 - If a "PLEASE FURNISH #" or continuation block lists additional identifiers across multiple lines, include ALL of them in customer_part separated by a space.
-- "amount" = quantity × unit_price. Compute whichever is missing.
-- "uom" defaults to "EA".
+- "amount" (a.k.a. "Extension", "Extended", "Line Cost", "Net") = quantity × unit_price. Compute whichever is missing.
+- "uom" (a.k.a. "Qty UM", "Units") defaults to "EA".
+- "required_date" (a.k.a. "Due Date", "Need By", "Ship Date").
+- "notes" (PER-LINE): short additional instructions specific to this line — e.g. "30 PER PALLET", "Ship by 5/18/2026", "DO NOT SHIP USING AAA COOPER", "Quote # applies", "Mfr: VALMONT". One short paragraph max, line breaks as \\n. Don't dump the full description here.
+
+PO-LEVEL NOTES (top-level "notes")
+Collect SHORT PO-specific instructions. Keep notes under ~10 lines / ~500 chars total.
+
+INCLUDE — short actionable instructions tied to this PO:
+  - "Acknowledge receipt of PO in 24 Hrs by email to: <email>"
+  - "Send Invoices to: <email>" (when there is no real bill_to address)
+  - "Send PO Acknowledgement to: <email>"
+  - "Send ASN to: <email>"
+  - "No Deliveries After 12:00 Noon"
+  - "**** NON-TAXABLE ****"
+  - "Contact buyer for any price discrepancy. Do not ship until buyer agrees."
+
+SKIP — multi-paragraph boilerplate that appears on EVERY PO from the same template:
+  - Ariba Network invoicing paragraphs ("...shall be issued via the Ariba Network...", "When submitting through the Ariba Network...", APQuestions@...)
+  - Wesco contract terms ("...governed by Wesco's purchase order terms and conditions...")
+  - Standard carrier-routing rules (LTL/Truckload weight limits, "Shipments under 150 lbs. Use UPS", DukeEnergyFreight.com, TONU / detention, ISPM 15 wood-packaging)
+  - Equal Opportunity Clause ("This contract, unless exempt under the rules ... 41 CFR CH. 60 ...")
+  - RUS approval text ("All materials must be RUS approved under Section 43-5...")
+  - Duke Energy Standard Terms / SECTION 1 DEFINITIONS / etc.
+
+CURRENCY + TOTALS
+- "currency": default "USD". Use the explicit code if "CAD"/"EUR"/etc. appears.
+- "total": grand total. Look for "TOTAL ORDER", "Total", "Grand Total", "Purchase Total", "Total PO Cost". Sum line subtotals if no explicit total is shown.
 
 INPUT FORMAT
 At the bottom of each page you may see a section like:
@@ -63,12 +142,12 @@ At the bottom of each page you may see a section like:
   | Line | Part #  | Description | Qty | Unit Price | Total |
   | 1    | X-1234  | Widget A    | 5   | 10.00      | 50.00 |
   ...
-When a [TABLE N] block is present, treat IT as the authoritative source for line items — it's the parser's structured view of the same table that may have been flattened into prose above. Header blocks (VENDOR / SHIP TO / BILL TO / BUYER) should still be read from the layout-preserved body text, not from tables.
+When a [TABLE N] block is present, treat IT as the authoritative source for line items — it's the parser's structured view of the same table that may have been flattened into prose above. Header blocks (VENDOR / SHIP TO / BILL TO / BUYER) should still be read from the layout-preserved body text.
 
 COLUMN LAYOUT HINT (text mode)
 The body text is whitespace-aligned to the original column layout. Related blocks may appear on the same line with significant whitespace between them — e.g.
   "VENDOR:  COOPER LIGHTING               SHIP TO:  TARHEEL ELECTRIC"
-Treat whitespace as a column boundary; left column is supplier, right column is ship-to. Do not concatenate their addresses. If the columns drift further down (one has more lines than the other), stay aligned with the original column boundary, not with the visual row.
+Treat whitespace as a column boundary. Do not concatenate addresses across columns. If the columns drift further down (one has more lines than the other), stay aligned with the original column boundary, not with the visual row.
 
 OUTPUT SCHEMA
 {
@@ -78,12 +157,21 @@ OUTPUT SCHEMA
   "customer": "string",
   "customer_address": "string",
   "supplier": "string",
+  "supplier_code": "string",
   "supplier_address": "string",
   "bill_to": "string (multi-line ok)",
   "ship_to": "string (multi-line ok)",
   "payment_terms": "string",
+  "freight_terms": "string",
+  "ship_via": "string",
+  "fob_terms": "string",
   "buyer": "string",
   "buyer_email": "string",
+  "buyer_phone": "string",
+  "receiving_contact": "string",
+  "receiving_contact_phone": "string",
+  "quote_number": "string",
+  "contract_number": "string",
   "currency": "USD",
   "line_items": [
     {
@@ -95,10 +183,12 @@ OUTPUT SCHEMA
       "uom": "EA",
       "unit_price": 0,
       "amount": 0,
-      "required_date": "YYYY-MM-DD"
+      "required_date": "YYYY-MM-DD",
+      "notes": "string"
     }
   ],
-  "total": 0
+  "total": 0,
+  "notes": "string (multi-line ok)"
 }`;
 
   async function extractWithLLM(documentText, { apiKey, apiKeys, model, signal, maxTokens = 8192 } = {}) {

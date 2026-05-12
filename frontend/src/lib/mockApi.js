@@ -164,6 +164,7 @@
         unit_price,
         amount: Number.isFinite(amount) && amount > 0 ? amount : +(quantity * unit_price).toFixed(2),
         required_date: normDate(it.required_date),
+        notes: String(it.notes || '').trim(),
       };
     });
 
@@ -178,15 +179,25 @@
       customer: String(data?.customer || '').trim(),
       customer_address: String(data?.customer_address || '').trim(),
       supplier: String(data?.supplier || '').trim(),
+      supplier_code: String(data?.supplier_code || '').trim(),
       supplier_address: String(data?.supplier_address || '').trim(),
       bill_to: String(data?.bill_to || '').trim(),
       ship_to: String(data?.ship_to || '').trim(),
       payment_terms: String(data?.payment_terms || '').trim(),
+      freight_terms: String(data?.freight_terms || '').trim(),
+      ship_via: String(data?.ship_via || '').trim(),
+      fob_terms: String(data?.fob_terms || '').trim(),
       buyer: String(data?.buyer || '').trim(),
       buyer_email: String(data?.buyer_email || '').trim(),
+      buyer_phone: String(data?.buyer_phone || '').trim(),
+      receiving_contact: String(data?.receiving_contact || '').trim(),
+      receiving_contact_phone: String(data?.receiving_contact_phone || '').trim(),
+      quote_number: String(data?.quote_number || '').trim(),
+      contract_number: String(data?.contract_number || '').trim(),
       currency: String(data?.currency || 'USD').trim(),
       line_items: normalized_items,
       total,
+      notes: String(data?.notes || '').trim(),
       confidence: { high: [], medium: [], low: [] },
     };
   }

@@ -20,9 +20,9 @@ Extract structured data into ONE JSON object that strictly matches the schema. N
 
 FORMATTING
 - Empty string "" for missing strings; 0 for missing numbers.
-- Dates: YYYY-MM-DD (convert from any format).
-- Numbers: plain decimals — no currency symbols, no thousands commas.
-- Multi-line addresses: preserve line breaks as \\n.
+- Dates: YYYY-MM-DD (convert from any format, including MM/DD/YYYY and DD/MM/YY).
+- Numbers: plain decimals — no currency symbols, no thousands commas, no $ or USD inline.
+- Multi-line addresses + notes: preserve line breaks as \\n.
 
 THE FOUR PARTIES (read carefully — most extraction errors live here)
 A PO involves up to four roles. Map them to the right fields by reading the LABELED BLOCKS on the document.
@@ -31,43 +31,130 @@ A PO involves up to four roles. Map them to the right fields by reading the LABE
   ─────────────────────────────────────────────────────────
   Logo / letterhead at top page    ->  customer (+ customer_address ONLY if a separate address block for the same entity exists)
   "VENDOR:", "SUPPLIER:", "Sold by",
-    "Company:" (Ariba template)    ->  supplier + supplier_address
-  "SHIP TO:", "Deliver To:"        ->  ship_to (where the GOODS go)
+    "Company:" (Ariba template)    ->  supplier + supplier_address (+ supplier_code if a number appears next to the label)
+  "SHIP TO:", "Deliver To:"        ->  ship_to (where the GOODS physically go)
   "BILL TO:", "INVOICE TO:",
-    "Remit To:", "Send invoices to" ->  bill_to
+    "Remit To:"                    ->  bill_to (an ADDRESS only; see below)
   "BUYER:", "Sourcing Rep:",
     "Buyer Name:", "Authorized by" ->  buyer (a PERSON, not a company)
 
-CRITICAL ADDRESS RULES
-1. Each address field belongs to its OWN entity. Do NOT borrow another block's address into an empty slot.
-   - If the PO names the customer at the top but shows no separate customer address block, leave customer_address as "".
-   - The supplier's address is often a "c/o broker" address (e.g. "C/O LEKSON ASSOCIATES INC, ..."). That belongs in supplier_address — NEVER in customer_address.
-   - The SHIP TO block on a PO is typically a warehouse or DC belonging to the customer — NOT the supplier's location. Put it in ship_to, NEVER in supplier_address.
-2. If the customer is not the same entity as the ship-to but the ship-to is clearly the customer's warehouse, ship_to should include the company name + address from the SHIP TO block.
-3. Stray single-letter codes next to a label ("SHIP TO:    R", "VENDOR:  4644") are ship-to / vendor reference codes — they are NOT part of the address. Skip them.
+FIELD LABEL VARIATIONS — different PO templates use different words for the same thing. Map them as follows:
+
+  po_number              <- "PURCHASE ORDER NUMBER", "PO Number", "Purchase Order:", "Purchase Order#:", "PO#", "P.O. NO."
+  po_date                <- "DATE", "PO Date", "Date:", "Order Date"
+  revision               <- "Revision", "Rev", "PO Revision", "Revision Number"
+  supplier_code          <- "VENDOR: <num>", "Supplier #", "Vendor #", "Vendor No.", "Company: <id>", "Account #" (on the supplier line)
+  payment_terms          <- "Payment Terms", "Terms"  (e.g. "Net 30", "Net 45", "1.5%10 Net 30")
+  freight_terms          <- "Freight Terms", "Freight term", "Freight" (e.g. "Prepaid and Allowed", "Per Contract", "Collect")
+  ship_via               <- "Ship Via", "Carrier", "Routing", "Method of Shipment"
+  fob_terms              <- "F.O.B.", "FOB", "FOB Terms", "Freight Origin", "F.O.B. Point"
+  buyer                  <- "Buyer", "Buyer Name", "Sourcing Representative", "Purchasing Agent" (PERSON, not company)
+  buyer_email            <- "Email:" in the buyer block, "Buyer Contact" when it's an email
+  buyer_phone            <- "Phone#:" inside the buyer block (NOT the receiving block phone)
+  receiving_contact      <- "Receiving Contact", "Deliver To Attn", "Site Contact" (PERSON, at delivery location)
+  receiving_contact_phone <- "Phone:" inside the receiving / ship-to block
+  quote_number           <- "Quote #", "Quote", "QUOTE #", "Reference: Quote #..."
+  contract_number        <- "Contract#", "Contract Ref #", "Master Agreement"
+  total                  <- "TOTAL ORDER", "Total", "Grand Total", "Purchase Total", "Total PO Cost", "PO Total"
+
+CRITICAL FIELD RULES
+
+#1 — bill_to is an ADDRESS, never an email or a generic mailbox.
+  * If the PO only says "Send invoices to ap@ceeus.com" or "SEND INVOICES TO: TEMA.INVOICES@NCEMCS.COM" or "Send all invoices to SCSInvoices@wescodist.com", do NOT put the email in bill_to. Leave bill_to as "" and put the whole instruction in the top-level notes field instead.
+  * bill_to should ONLY contain a postal address that a paper invoice could be mailed to.
+  * Example of correct extraction (TEMA-style PO):
+        text:  "SEND INVOICES TO: TEMA.INVOICES@NCEMCS.COM"
+        →  bill_to: ""
+           notes:   "Send invoices to: TEMA.INVOICES@NCEMCS.COM"
+
+#2 — Each address field belongs to its OWN entity. Never borrow.
+  * If the PO names the customer at the top (logo / letterhead) but shows no separate customer address block, leave customer_address as "".
+  * The supplier's address is often "C/O <broker> INC, ..." — that broker address belongs in supplier_address, NEVER in customer_address.
+  * The SHIP TO block is typically a warehouse / DC belonging to the customer — NOT the supplier. Put it in ship_to, NEVER in supplier_address.
+
+#3 — Reference codes next to labels:
+  * A short numeric next to "VENDOR:" / "Supplier #" / "Company:" goes in supplier_code.
+  * A single letter (e.g. "R" after "SHIP TO:") is a ship-to code — skip it, it's not an address.
+
+#4 — Ariba-template two-column layout (Apex / Duke / APG Purchasing / etc.).
+  Ariba POs lay out the supplier info on the LEFT and ship-to info on the RIGHT as two parallel column-blocks that continue for many lines. Read them STRICTLY column-by-column — never let one column's text bleed into the other's address field.
+
+  Example (this is the literal pattern you will see):
+
+      Company:           000098085004                  Ship To:
+                         TRITON FABRICATORS INC        OBRIEN DISTRIBUTION CTR - FLORIDA
+                                                       19800 South O'Brien Rd
+                         C/O LEKSON & ASSOC            UNIT 101
+                         4004-105 BARRETT DRIVE
+                                                       GROVELAND FL 34736 USA
+                         RALEIGH NC 27609 USA          FedEx Account : N/A
+                         Attention: Order Entry...     UPS Account: 54AR68
+                         Phone#: (919) 782-5426        Freight term : Per Contract
+
+  Correct mapping:
+      supplier         = "TRITON FABRICATORS INC"
+      supplier_code    = "000098085004"
+      supplier_address = "C/O LEKSON & ASSOC\\n4004-105 BARRETT DRIVE\\nRALEIGH NC 27609 USA"
+      ship_to          = "OBRIEN DISTRIBUTION CTR - FLORIDA\\n19800 South O'Brien Rd\\nUNIT 101\\nGROVELAND FL 34736 USA"
+      freight_terms    = "Per Contract"
+      customer_address = ""   (no separate customer address block — APG is on letterhead only)
+      bill_to          = ""   (no bill-to address shown — the Ariba "Invoicing:" paragraph is generic boilerplate)
+
+  Anti-patterns to AVOID on this layout:
+      ❌ Putting the ship-to address ("OBRIEN ... GROVELAND FL") in supplier_address
+      ❌ Putting the broker address ("C/O LEKSON & ASSOC ... RALEIGH NC") in customer_address
+      ❌ Leaving ship_to blank when it's clearly visible in the right column
 
 NAME RULES (never concatenate, never hallucinate)
 1. Pick ONE company name for each role. NEVER produce concatenations like:
    - WRONG: "SEFCOR INC ALLIED COMPONENTS INC"
    - WRONG: "VALMONT INDUSTRIES INC TRITON FABRICATORS INC"
    - WRONG: "DEF Purchasing Company, LLC APG Purchasing Company, LLC"
-2. If the PO has "Agent for X" or "On behalf of Y" wording, the customer is the ENTITY ACTUALLY ISSUING the PO (the agent name on the logo) — X / Y are principals, not the customer. Don't append the principal name.
+2. If the PO has "Agent for X" / "On behalf of Y" wording, the customer is the entity ACTUALLY ISSUING the PO (the agent name on the logo) — X / Y are principals, not the customer.
 3. The text may have garbled-looking characters that are actually TWO strings overlaid (templates do this for placeholder + real value). If you see something like "DAPEGF PPuurrcchhaassiinngg CCoommppaannyy" or "SAELFLCIEODR INC", that's two strings interleaved letter-by-letter — pick the one a human reader would see (typically the value, not the italic placeholder). For "DAPEGF" output "APG"; for "SAELFLCIEODR" output "ALLIED" (or "SEFCOR" — pick whichever is non-italic / drawn on top).
 4. buyer = a person's name. Don't put a company in buyer.
 5. buyer_email = the buyer's personal email. Do NOT use generic invoicing addresses like "TEMA.INVOICES@…" or "ap@…" or "SCSInvoices@…" — those go nowhere useful; leave buyer_email as "" if no personal email is shown.
 
 LINE ITEMS
 - Each row in the line-items table becomes one object in line_items[].
-- "customer_part": the BUYER'S part number (labels: "Customer Part #", "Item #", "Stock Code", "Buyer Part").
-- "vendor_part":   the SUPPLIER'S part number (labels: "Vendor Part #", "Mfr Part #", "Catalog #", "Model #", "Item").
+- "customer_part": the BUYER'S part number. Labels: "Customer Part #", "Item #", "Stock Code", "Buyer Part", "Product". On Ariba layouts the customer's item number appears as "Line <NUMBER>" at the start of the row (e.g. "Line 1624939 ..." → customer_part = "1624939"; "Line 4002005 ..." → customer_part = "4002005").
+- "vendor_part":   the SUPPLIER'S part number. Labels: "Vendor Part #", "Mfr Part #", "Catalog #", "Model #", "Mfr Model #", "Manufacturer Part Number".
+  ⚠️ The LABEL decides the field, NOT what the code looks like. Even if a "Mfr Part #" value reads like "DUKE-GB-DMA-70-70-FX-12-BK" (it has the customer's name in it), it still belongs in vendor_part because the label says "Mfr Part #".
 - If only one part number is given, put it in vendor_part.
 - If a "PLEASE FURNISH #" or continuation block lists ADDITIONAL identifiers spanning multiple lines, include ALL of them in customer_part separated by a single space.
-- "amount" = quantity × unit_price. If only one is given, compute the other.
-- "uom" defaults to "EA" if not specified.
-- "required_date": delivery / required-by date for that line.
+- "amount" (a.k.a. "Extension", "Extended", "Line Cost", "Net") = quantity × unit_price. If only one is given, compute the other.
+- "uom" (a.k.a. "Qty UM", "Units") defaults to "EA" if not specified.
+- "required_date" (a.k.a. "Due Date", "Need By", "Ship Date"): delivery / required-by date for that line.
+- "notes" (PER-LINE): short additional instructions specific to this line — examples from real POs:
+    "30 PER PALLET", "Ship by 5/18/2026", "PLEASE SHIP X OR SOONER",
+    "DO NOT SHIP USING AAA COOPER", "Quote # 859-0002746-009 applies",
+    "Santee Cooper PN 390287603 Ln # 35", "Mfr: VALMONT".
+  Keep it concise — one short paragraph max per line, line breaks as \\n. Don't dump the entire description here.
 
-TOTALS
-- "total": grand total of the PO (sum of all line items including freight/tax).
+PO-LEVEL NOTES (top-level "notes" field)
+Collect SHORT PO-specific instructions only. Keep notes under ~10 lines / ~500 characters total. Multiple notes separated by \\n.
+
+INCLUDE — short, specific, actionable instructions tied to THIS PO:
+  - "Acknowledge receipt of PO in 24 Hrs by email to: TEMA_Purchase_Orders@ncemcs.com"
+  - "Send PO Acknowledgement to: POA@ceeus.com"
+  - "Send Invoices to: ap@ceeus.com" (when there is no real bill_to address)
+  - "Send ASN to: receiving@ceeus.com"
+  - "No Deliveries After 12:00 Noon"
+  - "Receiving Hours 8:00AM-3:00PM Eastern, M-F"
+  - "**** NON-TAXABLE ****"
+  - "Contact buyer for any price discrepancy. Do not ship until buyer agrees to price."
+
+SKIP — generic multi-paragraph boilerplate that appears on EVERY PO from the same template. These add noise and don't help the rep, so omit them entirely:
+  - Ariba Network invoicing paragraphs ("All original invoices ... shall be issued via the Ariba Network...", "When submitting through the Ariba Network...", "Suppliers that have not yet signed up for their Ariba account...", "All invoice related questions should be sent to APQuestions@...")
+  - Wesco / contract terms blurbs ("Unless there are different or additional terms...", "Wesco's purchase order terms and conditions available at www.wesco.com/...")
+  - Standard carrier-routing rules (paragraphs about LTL/Truckload weight limits, "Shipments under 150 lbs. Use UPS", "DukeEnergyFreight.com", TONU / detention charges, ISPM 15 wood-packaging rules, Vendor Managed Freight, Duke Energy Logistics Group phone numbers)
+  - Equal Opportunity Clause text ("This contract, unless exempt under the rules, regulations, and relevant order of the Secretary of Labor (41 CFR CH. 60)...")
+  - RUS approval text ("All materials must be RUS approved under Section 43-5 list of materials.")
+  - Duke Energy Standard Terms and Conditions / "SECTION 1: DEFINITIONS" / "1.1 Parties" etc.
+
+CURRENCY + TOTALS
+- "currency": default "USD" if not explicitly stated. If "CAD"/"EUR"/etc. appears, use that.
+- "total": grand total of the PO. Look for "TOTAL ORDER", "Total", "Grand Total", "Purchase Total", "Total PO Cost". If only line subtotals are shown, sum them.
 
 INPUT FORMAT
 The document text you receive comes from a layout-preserving PDF parser, and at the bottom of each page you may see a section like:
@@ -91,12 +178,21 @@ OUTPUT SCHEMA
   "customer": "string",
   "customer_address": "string",
   "supplier": "string",
+  "supplier_code": "string",
   "supplier_address": "string",
   "bill_to": "string (multi-line ok)",
   "ship_to": "string (multi-line ok)",
   "payment_terms": "string",
+  "freight_terms": "string",
+  "ship_via": "string",
+  "fob_terms": "string",
   "buyer": "string",
   "buyer_email": "string",
+  "buyer_phone": "string",
+  "receiving_contact": "string",
+  "receiving_contact_phone": "string",
+  "quote_number": "string",
+  "contract_number": "string",
   "currency": "USD",
   "line_items": [
     {
@@ -108,10 +204,12 @@ OUTPUT SCHEMA
       "uom": "EA",
       "unit_price": 0,
       "amount": 0,
-      "required_date": "YYYY-MM-DD"
+      "required_date": "YYYY-MM-DD",
+      "notes": "string"
     }
   ],
-  "total": 0
+  "total": 0,
+  "notes": "string (multi-line ok)"
 }`;
 
   function _stripFences(content) {

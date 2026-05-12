@@ -61,6 +61,7 @@ class LineItem(BaseModel):
     unit_price: float = 0
     amount: float = 0
     required_date: str = ""
+    notes: str = ""                       # per-line notes ("30 PER PALLET" etc.)
 
 
 class PORecord(BaseModel):
@@ -70,16 +71,25 @@ class PORecord(BaseModel):
     customer: str = ""
     customer_address: str = ""
     supplier: str = ""
+    supplier_code: str = ""               # vendor # / supplier # / account # on customer side
     supplier_address: str = ""
     bill_to: str = ""
     ship_to: str = ""
     payment_terms: str = ""
+    freight_terms: str = ""               # "Prepaid and Allowed", "Per Contract", etc.
+    ship_via: str = ""                    # "Best Way", "UPS Collect", carrier
+    fob_terms: str = ""                   # "Shipping Point", "Destination"
     buyer: str = ""
     buyer_email: str = ""
+    buyer_phone: str = ""
+    receiving_contact: str = ""           # person at delivery location (not buyer)
+    receiving_contact_phone: str = ""
+    quote_number: str = ""
+    contract_number: str = ""
     currency: str = "USD"
     total: float = 0
     filename: str = ""
-    notes: str = ""
+    notes: str = ""                       # PO-level special instructions catchall
     status: str = "received"
     extraction_method: str = "text"
     line_items: list[LineItem] = Field(default_factory=list)

@@ -119,6 +119,19 @@ MIGRATIONS = [
     # deleted rows without rewriting history. Inserted by delete_po /
     # delete_user.
     ("deleted_at", "TEXT"),
+    # Expanded schema — see backend.PORecord. Added to cover fields that
+    # appear on real-world POs (Ariba/Wesco/Cooper templates) but were
+    # missing in v0.4. ALTER TABLE ADD COLUMN is safe on SQLite for
+    # existing rows (NULL defaults).
+    ("supplier_code", "TEXT"),
+    ("buyer_phone", "TEXT"),
+    ("receiving_contact", "TEXT"),
+    ("receiving_contact_phone", "TEXT"),
+    ("freight_terms", "TEXT"),
+    ("ship_via", "TEXT"),
+    ("fob_terms", "TEXT"),
+    ("quote_number", "TEXT"),
+    ("contract_number", "TEXT"),
 ]
 
 USER_MIGRATIONS = [
@@ -127,6 +140,8 @@ USER_MIGRATIONS = [
 
 LINE_ITEM_MIGRATIONS = [
     ("deleted_at", "TEXT"),
+    # Per-line special instructions ("30 PER PALLET", "Ship by ...", etc.)
+    ("notes", "TEXT"),
 ]
 
 
@@ -325,8 +340,9 @@ def _insert_line_items(conn: sqlite3.Connection, po_id: str, items: Iterable[dic
         conn.execute(
             """
             INSERT INTO line_items (id, po_id, line, customer_part, vendor_part,
-                                    description, quantity, uom, unit_price, amount, required_date)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                                    description, quantity, uom, unit_price, amount,
+                                    required_date, notes)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 str(uuid.uuid4()),
@@ -340,6 +356,7 @@ def _insert_line_items(conn: sqlite3.Connection, po_id: str, items: Iterable[dic
                 float(it.get("unit_price") or 0),
                 float(it.get("amount") or 0),
                 str(it.get("required_date") or ""),
+                str(it.get("notes") or ""),
             ),
         )
 
@@ -353,13 +370,17 @@ def create_po(data: dict, *, created_by_id: str | None = None, created_by_email:
         conn.execute(
             """
             INSERT INTO pos (id, po_number, po_date, revision, customer, customer_address,
-                             supplier, supplier_address, bill_to, ship_to, payment_terms,
-                             buyer, buyer_email, currency, total, filename, notes, status,
+                             supplier, supplier_code, supplier_address, bill_to, ship_to,
+                             payment_terms, freight_terms, ship_via, fob_terms,
+                             buyer, buyer_email, buyer_phone,
+                             receiving_contact, receiving_contact_phone,
+                             quote_number, contract_number,
+                             currency, total, filename, notes, status,
                              extraction_method,
                              created_by_id, created_by_email,
                              updated_by_id, updated_by_email,
                              added_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?, ?,?,?,?,?, ?,?,?,?, ?,?,?, ?,?, ?,?, ?,?,?,?,?, ?, ?,?, ?,?, ?,?)
             """,
             (
                 po_id,
@@ -369,12 +390,21 @@ def create_po(data: dict, *, created_by_id: str | None = None, created_by_email:
                 str(data.get("customer") or ""),
                 str(data.get("customer_address") or ""),
                 str(data.get("supplier") or ""),
+                str(data.get("supplier_code") or ""),
                 str(data.get("supplier_address") or ""),
                 str(data.get("bill_to") or ""),
                 str(data.get("ship_to") or ""),
                 str(data.get("payment_terms") or ""),
+                str(data.get("freight_terms") or ""),
+                str(data.get("ship_via") or ""),
+                str(data.get("fob_terms") or ""),
                 str(data.get("buyer") or ""),
                 str(data.get("buyer_email") or ""),
+                str(data.get("buyer_phone") or ""),
+                str(data.get("receiving_contact") or ""),
+                str(data.get("receiving_contact_phone") or ""),
+                str(data.get("quote_number") or ""),
+                str(data.get("contract_number") or ""),
                 str(data.get("currency") or "USD"),
                 float(data.get("total") or 0),
                 str(data.get("filename") or ""),
@@ -402,8 +432,13 @@ def update_po(po_id: str, data: dict, *, updated_by_id: str | None = None, updat
         conn.execute(
             """
             UPDATE pos SET po_number=?, po_date=?, revision=?, customer=?, customer_address=?,
-                           supplier=?, supplier_address=?, bill_to=?, ship_to=?, payment_terms=?,
-                           buyer=?, buyer_email=?, currency=?, total=?, filename=?, notes=?,
+                           supplier=?, supplier_code=?, supplier_address=?,
+                           bill_to=?, ship_to=?,
+                           payment_terms=?, freight_terms=?, ship_via=?, fob_terms=?,
+                           buyer=?, buyer_email=?, buyer_phone=?,
+                           receiving_contact=?, receiving_contact_phone=?,
+                           quote_number=?, contract_number=?,
+                           currency=?, total=?, filename=?, notes=?,
                            status=?,
                            updated_by_id=?, updated_by_email=?,
                            updated_at=?
@@ -416,12 +451,21 @@ def update_po(po_id: str, data: dict, *, updated_by_id: str | None = None, updat
                 str(data.get("customer") or ""),
                 str(data.get("customer_address") or ""),
                 str(data.get("supplier") or ""),
+                str(data.get("supplier_code") or ""),
                 str(data.get("supplier_address") or ""),
                 str(data.get("bill_to") or ""),
                 str(data.get("ship_to") or ""),
                 str(data.get("payment_terms") or ""),
+                str(data.get("freight_terms") or ""),
+                str(data.get("ship_via") or ""),
+                str(data.get("fob_terms") or ""),
                 str(data.get("buyer") or ""),
                 str(data.get("buyer_email") or ""),
+                str(data.get("buyer_phone") or ""),
+                str(data.get("receiving_contact") or ""),
+                str(data.get("receiving_contact_phone") or ""),
+                str(data.get("quote_number") or ""),
+                str(data.get("contract_number") or ""),
                 str(data.get("currency") or "USD"),
                 float(data.get("total") or 0),
                 str(data.get("filename") or ""),
