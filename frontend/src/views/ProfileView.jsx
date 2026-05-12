@@ -1,15 +1,18 @@
 /* ==========================================================================
-   ProfileView.jsx — Hero (avatar + identity) + Edit profile + Change password.
+   ProfileView.jsx — Hero (avatar + identity) + Your activity + Edit
+   profile + Change password.
    ========================================================================== */
 (() => {
   'use strict';
-  const { useState } = React;
-  const { Card, CardHeader, Field, Input, Button, Icon, Badge } = window.App;
+  const { useState, useEffect } = React;
+  const { Card, CardHeader, Field, Input, Button, Icon, Badge, EmptyState } = window.App;
+  const { relativeTime } = window.App.utils;
 
   function ProfileView({ user, onUserUpdated, pushToast }) {
     return (
       <div className="view profile-view">
         <ProfileHero user={user} />
+        <YourActivityCard user={user} />
         <div className="profile-grid">
           <ProfileCard user={user} onUserUpdated={onUserUpdated} pushToast={pushToast} />
           <PasswordCard pushToast={pushToast} />
@@ -88,7 +91,7 @@
                 {user?.role === 'admin' ? 'Administrator' : 'Sales rep'}
               </Badge>
               <span className="text-sm text-subtle" style={{ fontSize: 11 }}>
-                Set by the YAML invitation list.
+                Set by your admin on the Team page.
               </span>
             </div>
           </Field>
@@ -188,6 +191,126 @@
           </div>
         </div>
       </Card>
+    );
+  }
+
+  // --------------------------------------------------------------------
+  // Your activity — personal slice of the ledger (POs you created)
+  // --------------------------------------------------------------------
+  function YourActivityCard({ user }) {
+    const [loading, setLoading] = useState(true);
+    const [pos, setPos] = useState([]);
+
+    useEffect(() => {
+      let alive = true;
+      window.App.backend.listPOs()
+        .then((rows) => {
+          if (!alive) return;
+          // listPOs returns newest first; filter to this user's POs.
+          setPos((rows || []).filter((p) => p.created_by_id === user?.id));
+        })
+        .catch(() => {})
+        .finally(() => { if (alive) setLoading(false); });
+      return () => { alive = false; };
+    }, [user?.id]);
+
+    const count = pos.length;
+    const total = pos.reduce((s, p) => s + (Number(p.total) || 0), 0);
+    const thisMonth = (() => {
+      const now = new Date();
+      const yyyymm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      return pos.filter((p) => (p.added_at || '').startsWith(yyyymm)).length;
+    })();
+    const latest = pos.slice(0, 3);
+
+    return (
+      <Card noPadding style={{ marginBottom: 16 }}>
+        <CardHeader
+          title="Your activity"
+          subtitle="POs you've added to the ledger."
+          icon={<Icon name="rows" size={12} />}
+        />
+        {loading ? (
+          <div className="settings-section" style={{ display: 'flex', justifyContent: 'center', padding: 24 }}>
+            <span className="spinner" />
+          </div>
+        ) : count === 0 ? (
+          <EmptyState
+            icon="upload-cloud"
+            title="No POs yet"
+            text="Head to Upload to capture your first purchase order."
+          />
+        ) : (
+          <>
+            <div className="settings-section">
+              <div className="grid-2" style={{ gap: 8 }}>
+                <ActivityTile label="POs uploaded" value={count} />
+                <ActivityTile label="This month" value={thisMonth} />
+                <ActivityTile label="Total value" value={`$${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} wide />
+              </div>
+            </div>
+            {latest.length > 0 && (
+              <div className="settings-section" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                <div className="settings-label" style={{ marginBottom: 8 }}>Recent</div>
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {latest.map((p) => (
+                    <li
+                      key={p.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '8px 10px',
+                        background: 'var(--bg-subtle)',
+                        border: '1px solid var(--border-subtle)',
+                        borderRadius: 6,
+                      }}
+                    >
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, fontFamily: 'JetBrains Mono' }}>
+                          {p.po_number}
+                        </div>
+                        <div className="text-sm text-muted" style={{ fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {p.customer || '—'}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, fontFamily: 'JetBrains Mono' }}>
+                          ${Number(p.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                        <div className="text-sm text-muted" style={{ fontSize: 11 }}>
+                          {p.added_at ? relativeTime(p.added_at) : ''}
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        )}
+      </Card>
+    );
+  }
+
+  function ActivityTile({ label, value, wide }) {
+    return (
+      <div
+        style={{
+          gridColumn: wide ? '1 / -1' : 'auto',
+          padding: '10px 12px',
+          background: 'var(--bg-subtle)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: 6,
+        }}
+      >
+        <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-subtle)', fontWeight: 500 }}>
+          {label}
+        </div>
+        <div style={{ fontSize: 18, fontFamily: 'JetBrains Mono', fontWeight: 600, marginTop: 2 }}>
+          {value}
+        </div>
+      </div>
     );
   }
 

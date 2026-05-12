@@ -56,74 +56,7 @@
     return (
       <div className="view">
        <div className="settings-grid">
-        <Card noPadding className="mb-0">
-          <CardHeader
-            title="LLM provider"
-            subtitle="Used for PDF extraction. Optional per-user override of the default key."
-            icon={<Icon name="sparkles" size={12} />}
-            actions={
-              <Badge tone={testResult === 'ok' ? 'success' : testResult === 'fail' ? 'danger' : isUsingDefault ? 'warning' : 'success'} dot>
-                {testResult === 'ok' ? 'Verified' : testResult === 'fail' ? 'Failed' : isUsingDefault ? 'Default key' : 'Custom key'}
-              </Badge>
-            }
-          />
-          <div className="settings-section">
-            <Field label="API key">
-              <div className="flex gap-2 items-center">
-                <div className="input-with-icon" style={{ flex: 1 }}>
-                  <span className="input-icon"><Icon name="link" size={13} /></span>
-                  <Input
-                    type={keyVisible ? 'text' : 'password'}
-                    value={keyInput}
-                    onChange={(v) => { setKeyInput(v); setKeyDirty(true); }}
-                    onBlur={saveKey}
-                    placeholder="AIza...  or  sk-or-v1-..."
-                    style={{ fontFamily: 'JetBrains Mono', fontSize: 12 }}
-                  />
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  iconOnly={keyVisible ? 'x' : 'eye'}
-                  onClick={() => setKeyVisible(!keyVisible)}
-                  title={keyVisible ? 'Hide' : 'Show'}
-                />
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  iconLeft={testing ? undefined : 'check'}
-                  loading={testing}
-                  onClick={testConnection}
-                  disabled={!keyInput || testing}
-                >
-                  {testing ? 'Testing...' : 'Test'}
-                </Button>
-              </div>
-              <span className="text-sm text-muted mt-2">
-                Per-user override stored in your browser's <code style={{ background: 'var(--bg-subtle)', padding: '1px 4px', borderRadius: 3 }}>localStorage</code>. Empty falls back to the shared key your admin configured. Get a key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style={{ color: 'var(--accent)' }}>Google AI Studio</a> (Gemini) or <a href="https://openrouter.ai/keys" target="_blank" rel="noopener" style={{ color: 'var(--accent)' }}>openrouter.ai/keys</a>.
-              </span>
-            </Field>
-          </div>
-
-          <div className="settings-section" style={{ borderTop: '1px solid var(--border-subtle)' }}>
-            <Field label="Model">
-              <div className="grid-2" style={{ gap: 8 }}>
-                {window.App.config.AVAILABLE_MODELS.map((m) => (
-                  <ModelOption
-                    key={m.id}
-                    model={m}
-                    selected={model === m.id}
-                    onSelect={() => updateModel(m.id)}
-                  />
-                ))}
-              </div>
-              <span className="text-sm text-muted mt-2" style={{ fontSize: 11.5 }}>
-                Sonnet 4.5 is the recommended default — accurate enough for dense industrial POs at $3/M input tokens.
-              </span>
-            </Field>
-          </div>
-        </Card>
-
+        {/* Everyone gets the Workflow toggle (browser-local). */}
         <Card noPadding className="mb-0">
           <CardHeader
             title="Workflow"
@@ -143,21 +76,22 @@
           </div>
         </Card>
 
-        <Card noPadding className="mb-0">
-          <CardHeader
-            title="Ledger data"
-            subtitle="Shared PO history across the team."
-            icon={<Icon name="rows" size={12} />}
-          />
-          <div className="settings-section">
-            <div className="settings-row">
-              <div>
-                <div className="settings-label">Stored in the cloud database</div>
-                <div className="settings-help">
-                  {recordCount} PO{recordCount === 1 ? '' : 's'} visible to your team. Persists across browsers and devices.
+        {/* Non-admins stop here. Below: admin-only configuration. */}
+        {isAdmin && (
+          <Card noPadding className="mb-0">
+            <CardHeader
+              title="Ledger data"
+              subtitle="Shared PO history across the team."
+              icon={<Icon name="rows" size={12} />}
+            />
+            <div className="settings-section">
+              <div className="settings-row">
+                <div>
+                  <div className="settings-label">Stored in the cloud database</div>
+                  <div className="settings-help">
+                    {recordCount} PO{recordCount === 1 ? '' : 's'} visible to your team. Persists across browsers and devices.
+                  </div>
                 </div>
-              </div>
-              {isAdmin && (
                 <div className="settings-control">
                   {confirmClear ? (
                     <div className="flex gap-2">
@@ -172,16 +106,80 @@
                     </Button>
                   )}
                 </div>
-              )}
-            </div>
-            {!isAdmin && (
-              <div className="settings-help" style={{ marginTop: 8 }}>
-                <Icon name="info" size={11} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-                Only admins can clear or modify other reps' entries. You can delete your own POs from the Repository.
               </div>
-            )}
-          </div>
-        </Card>
+            </div>
+          </Card>
+        )}
+
+        {isAdmin && (
+          <Card noPadding className="mb-0">
+            <CardHeader
+              title="LLM provider (admin)"
+              subtitle="Your personal override of the team's shared key. Stored locally in this browser."
+              icon={<Icon name="sparkles" size={12} />}
+              actions={
+                <Badge tone={testResult === 'ok' ? 'success' : testResult === 'fail' ? 'danger' : isUsingDefault ? 'warning' : 'success'} dot>
+                  {testResult === 'ok' ? 'Verified' : testResult === 'fail' ? 'Failed' : isUsingDefault ? 'Default key' : 'Custom key'}
+                </Badge>
+              }
+            />
+            <div className="settings-section">
+              <Field label="API key">
+                <div className="flex gap-2 items-center">
+                  <div className="input-with-icon" style={{ flex: 1 }}>
+                    <span className="input-icon"><Icon name="link" size={13} /></span>
+                    <Input
+                      type={keyVisible ? 'text' : 'password'}
+                      value={keyInput}
+                      onChange={(v) => { setKeyInput(v); setKeyDirty(true); }}
+                      onBlur={saveKey}
+                      placeholder="AIza...  or  sk-or-v1-..."
+                      style={{ fontFamily: 'JetBrains Mono', fontSize: 12 }}
+                    />
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    iconOnly={keyVisible ? 'x' : 'eye'}
+                    onClick={() => setKeyVisible(!keyVisible)}
+                    title={keyVisible ? 'Hide' : 'Show'}
+                  />
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    iconLeft={testing ? undefined : 'check'}
+                    loading={testing}
+                    onClick={testConnection}
+                    disabled={!keyInput || testing}
+                  >
+                    {testing ? 'Testing...' : 'Test'}
+                  </Button>
+                </div>
+                <span className="text-sm text-muted mt-2">
+                  Empty falls back to the team's shared key (see Foundry Admin below). Useful for testing a key before rolling it out to the team. Get a key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style={{ color: 'var(--accent)' }}>Google AI Studio</a> (Gemini) or <a href="https://openrouter.ai/keys" target="_blank" rel="noopener" style={{ color: 'var(--accent)' }}>openrouter.ai/keys</a>.
+                </span>
+              </Field>
+            </div>
+
+            <div className="settings-section" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+              <Field label="Model">
+                <div className="grid-2" style={{ gap: 8 }}>
+                  {window.App.config.AVAILABLE_MODELS.map((m) => (
+                    <ModelOption
+                      key={m.id}
+                      model={m}
+                      selected={model === m.id}
+                      onSelect={() => updateModel(m.id)}
+                    />
+                  ))}
+                </div>
+                <span className="text-sm text-muted mt-2" style={{ fontSize: 11.5 }}>
+                  Sonnet 4.5 is the recommended default — accurate enough for dense industrial POs at $3/M input tokens.
+                </span>
+              </Field>
+            </div>
+          </Card>
+        )}
 
         {isAdmin && <AdminCard pushToast={pushToast} backendOnline={backendOnline} />}
 
