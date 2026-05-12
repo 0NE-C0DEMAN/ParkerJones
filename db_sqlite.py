@@ -105,7 +105,9 @@ MIGRATIONS = [
     ("created_by_email", "TEXT"),
     ("updated_by_id", "TEXT"),
     ("updated_by_email", "TEXT"),
-    # Soft-delete for tombstone-based sync (see db_hybrid / sync_engine).
+    # Soft-delete tombstone — kept so list_* queries can filter out
+    # deleted rows without rewriting history. Inserted by delete_po /
+    # delete_user.
     ("deleted_at", "TEXT"),
 ]
 

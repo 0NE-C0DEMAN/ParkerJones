@@ -19,8 +19,11 @@ echo.
 echo  Setup complete!
 echo.
 echo  Next step:
-echo    1. Make sure .streamlit\secrets.toml exists with your API key + Sheet config.
-echo       (Copy .streamlit\secrets.toml.example and fill in the values.)
-echo    2. Double-click start_streamlit.bat to launch the app.
+echo    1. Make sure .streamlit\secrets.toml exists with your LLM API key
+echo       and JWT secret. (Copy .streamlit\secrets.toml.example as a
+echo       starting point and fill in the values.)
+echo    2. Make sure users.yaml exists with the invitation list.
+echo       (Copy users.yaml.example as a starting point.)
+echo    3. Double-click start_streamlit.bat to launch the app.
 echo.
 pause

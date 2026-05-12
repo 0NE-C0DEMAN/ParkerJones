@@ -6,11 +6,14 @@
 # otherwise `mkdir` etc. fail with EACCES on /app.
 #
 # Runtime configuration comes from Space "Variables and secrets":
-#   FOUNDRY_DB_BACKEND  = turso
-#   TURSO_DB_URL        = libsql://...turso.io
-#   TURSO_DB_TOKEN      = eyJhbGciOi...
-#   OPENROUTER_API_KEY  = AIza...  (or sk-or-v1-...)
-#   FOUNDRY_JWT_SECRET  = <hex>
+#   FOUNDRY_DB_BACKEND   = sqlite
+#   FOUNDRY_SQLITE_PATH  = /home/user/app/data/foundry.db    (mounted bucket)
+#   OPENROUTER_API_KEY   = AIza...  (or sk-or-v1-...)
+#   FOUNDRY_JWT_SECRET   = <hex>
+#
+# Volume mounts (set once via `hf spaces volumes set`):
+#   /home/user/app/data    ← hf://buckets/SamTwo/foundry-db
+#   /home/user/app/files   ← hf://buckets/SamTwo/foundry-sources
 
 FROM python:3.11-slim
 

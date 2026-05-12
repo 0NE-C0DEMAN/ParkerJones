@@ -142,7 +142,7 @@
             <div className="settings-row">
               <div>
                 <div className="settings-label">Excel destination</div>
-                <div className="settings-help">Where the rolling ledger file is saved (OneDrive sync recommended once Streamlit ships).</div>
+                <div className="settings-help">Excel exports are delivered as browser downloads.</div>
               </div>
               <div className="settings-control">
                 <Badge tone="default">Browser download</Badge>

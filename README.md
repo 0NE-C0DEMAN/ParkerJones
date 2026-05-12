@@ -52,8 +52,6 @@ ParkerJones/
 ├── Dockerfile              # Production image for HF Spaces
 ├── requirements.txt
 ├── users.yaml.example      # Invitation list template (real users.yaml is gitignored)
-├── scripts/
-│   └── migrate_turso_to_sqlite.py   # One-shot, kept for traceability
 ├── .streamlit/
 │   ├── config.toml
 │   └── secrets.toml.example
