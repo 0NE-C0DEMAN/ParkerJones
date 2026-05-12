@@ -117,8 +117,12 @@ OUTPUT SCHEMA
     const text = parts.map((p) => p.text || '').join('').trim();
 
     if (finishReason === 'MAX_TOKENS' && !allowTruncation) {
-      console.warn('Gemini response truncated. Raw:', text);
-      throw new Error('Response was cut off — increase max_tokens or switch to a smaller PO.');
+      // Don't throw — large POs hit this and the chunked extractor in
+      // mockApi.js wants to salvage what it can. _parseJson upstream uses
+      // a regex that often recovers a valid JSON object from truncated
+      // output. If even that fails, the chunk will be marked failed and
+      // its siblings still contribute.
+      console.warn('Foundry: Gemini response truncated, returning partial text to caller.');
     }
     if (finishReason === 'SAFETY' || finishReason === 'RECITATION') {
       throw new Error(`Gemini blocked response (${finishReason}). Try a different model.`);

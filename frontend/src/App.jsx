@@ -124,6 +124,11 @@
         const data = await window.App.api.extractPO(file, {
           onStage: (stage) => setPending((curr) => curr ? { ...curr, stage } : curr),
         });
+        // Surface any non-fatal warnings (e.g. "1 of 4 chunks didn't extract")
+        // so reps know something is worth a second look. The extraction still
+        // succeeded — we just want them to glance at the line items.
+        const warnings = Array.isArray(data?._warnings) ? data._warnings : [];
+        warnings.forEach((message) => push({ type: 'warning', message }));
         let duplicate = null;
         if (data.po_number && backendOnline) {
           duplicate = await window.App.backend.findByPONumber(data.po_number);
