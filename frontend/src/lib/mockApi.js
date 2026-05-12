@@ -1,7 +1,9 @@
 /* ==========================================================================
    extractor (window.App.api) — PO extraction pipeline.
 
-   STRATEGY: text-first, vision as automatic fallback for scanned PDFs.
+   ROUTING — deterministic, binary:
+     • pdfplumber returns ANY text  → text path (Gemini text)
+     • pdfplumber returns no text   → vision path (Gemini Flash vision)
 
    For MACHINE-READABLE PDFs (almost everything Parker handles):
      1. Get page count of the PDF (cheap, client-side).
@@ -9,13 +11,12 @@
         MAX_EXTRACT_PAGES pages with pdfplumber.extract_text(layout=True)
         plus a last-wins char dedup pass (handles overlaid template text
         on Ariba-style PDFs).
-     3. If the resulting text is dense enough (heuristic: > 60 chars per
-        page), send it to the LLM (Gemini text endpoint) and we're done.
+     3. Send the parsed text to gemini-2.5-flash.
 
    For SCANNED / image-only PDFs:
-     1. Server text extraction returns near-empty text.
-     2. Fall through to vision: render the first MAX_EXTRACT_PAGES pages
-        as PNG via pdf.js at high DPI, send to gemini-2.5-flash vision.
+     1. pdfplumber returns empty strings for every page.
+     2. Render the first MAX_EXTRACT_PAGES pages as PNG via pdf.js,
+        send to gemini-2.5-flash vision.
 
    Pages 4+ on industrial PO templates are pure Standard Terms & Conditions
    boilerplate — never useful for extraction — so we cap at MAX_EXTRACT_PAGES.
@@ -30,13 +31,6 @@
   // industrial PO templates are T&Cs boilerplate. The server enforces the
   // same cap independently.
   const MAX_EXTRACT_PAGES = 3;
-
-  // Threshold (chars per parsed page) below which we declare the PDF to be
-  // image-only / scanned and switch to the vision path. Real industrial
-  // POs land in the 2K–8K chars/page range; a scanned PDF returns ~0–40.
-  // 60 leaves comfortable headroom for "mostly image with a sliver of
-  // header text" hybrids.
-  const TEXT_DENSITY_THRESHOLD = 60;
 
   // Per-call retry policy for transient errors (429, 5xx, network blips).
   const RETRY_ATTEMPTS = 2;
@@ -94,12 +88,12 @@
 
     // --- 2. Decide: text path or vision path? ---
     //
-    // Density heuristic: scanned PDFs produce ~0–40 chars per page from
-    // pdfplumber; real text PDFs produce thousands. Anything below
-    // TEXT_DENSITY_THRESHOLD chars/page → vision.
+    // Binary check: if pdfplumber returns ANY text at all, the PDF has a
+    // real text layer and we use the text path. If it returns nothing
+    // (all pages empty after trim), it's a scan and we use vision.
+    // No threshold, no chars-per-page math.
     const totalTextChars = pages.reduce((sum, p) => sum + (p || '').trim().length, 0);
-    const charsPerPage = parsedPageCount > 0 ? totalTextChars / parsedPageCount : 0;
-    const isScanned = parsedPageCount > 0 && charsPerPage < TEXT_DENSITY_THRESHOLD;
+    const isScanned = totalTextChars === 0;
 
     let raw;
     let extractionMethod = 'text';
@@ -110,7 +104,7 @@
       // For OpenRouter the rep's selected model carries through (Claude
       // Sonnet / Haiku / GPT — all vision-capable).
       onStage?.('extracting',
-        `Scanned PDF (≤${Math.round(charsPerPage)} chars/pg) — using vision on ${MAX_EXTRACT_PAGES} page${MAX_EXTRACT_PAGES === 1 ? '' : 's'}`);
+        `Scanned PDF (no text layer) — using vision on first ${MAX_EXTRACT_PAGES} page${MAX_EXTRACT_PAGES === 1 ? '' : 's'}`);
 
       let rendered;
       try {
