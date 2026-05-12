@@ -13,17 +13,19 @@ All /api/pos/* and /api/stats endpoints require Authorization: Bearer <token>.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse
 from pydantic import BaseModel, EmailStr, Field
 
 import db
 import excel_export
 import auth
+import frontend_html
 
 app = FastAPI(title="Foundry API", version="0.4.0")
 
@@ -134,6 +136,23 @@ def health():
     }
 
 
+# ---------------------------------------------------------------------------
+# Single-page-app HTML — served at "/" in production (HF Spaces).
+# In Streamlit dev mode, Streamlit serves the HTML inside a components.html
+# iframe instead and this endpoint is unused.
+# ---------------------------------------------------------------------------
+@app.get("/", response_class=HTMLResponse)
+def index():
+    # API key for the frontend's LLM calls — read from env (HF Spaces secret).
+    # Falls back to OPENROUTER_API_KEY, then GEMINI_API_KEY, then empty.
+    api_key = (
+        os.environ.get("OPENROUTER_API_KEY")
+        or os.environ.get("GEMINI_API_KEY")
+        or ""
+    )
+    return frontend_html.build_app_html(api_key=api_key)
+
+
 # ============================================================================
 # Auth endpoints
 # ============================================================================
@@ -203,6 +222,23 @@ def logout(user: auth.CurrentUser = Depends(auth.current_user)):
 @app.get("/api/stats")
 def stats(user: auth.CurrentUser = Depends(auth.current_user)):
     return db.stats()
+
+
+@app.get("/api/sync/status")
+def sync_status(user: auth.CurrentUser = Depends(auth.current_user)):
+    """Current sync state — used by the SyncStatus pill in the topbar.
+    Returns a stub for non-hybrid backends."""
+    if hasattr(db, "sync_status"):
+        return db.sync_status()
+    return {"status": "n/a", "backend": db.BACKEND}
+
+
+@app.post("/api/sync/now")
+def sync_now(user: auth.CurrentUser = Depends(auth.current_user)):
+    """Force an immediate sync cycle (manual refresh button)."""
+    if hasattr(db, "sync_now"):
+        return db.sync_now()
+    return {"status": "n/a", "backend": db.BACKEND}
 
 
 @app.get("/api/pos", response_model=list[PORecordSaved])
@@ -322,11 +358,7 @@ def distinct_values(field: str, user: auth.CurrentUser = Depends(auth.current_us
     allowed = {"customer", "supplier", "buyer", "payment_terms"}
     if field not in allowed:
         raise HTTPException(400, f"Unsupported field. Allowed: {', '.join(sorted(allowed))}")
-    with db.get_conn() as conn:
-        rows = conn.execute(
-            f"SELECT DISTINCT {field} AS v FROM pos WHERE {field} IS NOT NULL AND {field} <> '' ORDER BY {field}"
-        ).fetchall()
-        return {"field": field, "values": [r["v"] for r in rows]}
+    return {"field": field, "values": db.list_distinct(field)}
 
 
 @app.get("/api/team")

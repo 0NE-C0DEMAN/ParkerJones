@@ -16,7 +16,6 @@ Architecture:
 """
 from __future__ import annotations
 
-import json
 import socket
 import subprocess
 import sys
@@ -26,8 +25,9 @@ from pathlib import Path
 import streamlit as st
 import streamlit.components.v1 as components
 
+import frontend_html
+
 ROOT = Path(__file__).parent
-FRONTEND = ROOT / "frontend"
 BACKEND_PORT = 8503
 
 # ---------------------------------------------------------------------------
@@ -139,68 +139,13 @@ _backend_status = _ensure_backend()
 
 
 # ---------------------------------------------------------------------------
-# Bundle the frontend into one HTML payload
+# Render — iframe sized to fit a typical viewport. The internal CSS layout
+# pins the sidebar full-height; only .main scrolls.
+#
+# The HTML payload itself lives in frontend_html.py so backend.py can serve
+# the same single-page app at "/" on hosted deploys (Hugging Face Spaces),
+# where there's no Streamlit at all.
 # ---------------------------------------------------------------------------
-FILES_PURE_JS = [
-    "src/lib/utils.js",
-    "src/lib/config.js",
-    "src/lib/auth.js",
-    "src/lib/api.js",
-    "src/lib/pdfParser.js",
-    "src/lib/openrouter.js",
-    "src/lib/gemini.js",
-    "src/lib/mockApi.js",
-]
-FILES_JSX = [
-    "src/lib/hooks.jsx",
-    "src/components/Icon.jsx",
-    "src/components/Button.jsx",
-    "src/components/Badge.jsx",
-    "src/components/Card.jsx",
-    "src/components/Input.jsx",
-    "src/components/Toast.jsx",
-    "src/components/Confidence.jsx",
-    "src/components/Stat.jsx",
-    "src/components/EmptyState.jsx",
-    "src/components/Dropzone.jsx",
-    "src/components/Segmented.jsx",
-    "src/components/ErrorBoundary.jsx",
-    "src/layout/Sidebar.jsx",
-    "src/layout/TopBar.jsx",
-    # Helpers/atoms first, then composites that depend on them.
-    "src/features/StatusPill.jsx",
-    "src/features/Autocomplete.jsx",
-    "src/features/ActivityLog.jsx",
-    "src/features/Charts.jsx",
-    "src/features/UploadQueue.jsx",
-    "src/features/CommandPalette.jsx",
-    "src/features/POHeader.jsx",
-    "src/features/AddressBlock.jsx",
-    "src/features/LineItemsTable.jsx",
-    "src/features/ProcessingState.jsx",
-    "src/features/RecentUploadsList.jsx",
-    "src/features/RepositoryTable.jsx",
-    "src/features/PdfPreview.jsx",
-    "src/views/AuthView.jsx",
-    "src/views/UploadView.jsx",
-    "src/views/ReviewView.jsx",
-    "src/views/RepositoryView.jsx",
-    "src/views/SettingsView.jsx",
-    "src/views/ProfileView.jsx",
-    "src/views/TeamView.jsx",
-    "src/App.jsx",
-    "src/main.jsx",
-]
-
-
-def _read(rel: str) -> str:
-    p = FRONTEND / rel
-    if not p.exists():
-        st.error(f"Missing frontend file: {rel}")
-        st.stop()
-    return p.read_text(encoding="utf-8")
-
-
 def _streamlit_api_key() -> str:
     try:
         return st.secrets.get("OPENROUTER_API_KEY", "") or ""
@@ -208,87 +153,8 @@ def _streamlit_api_key() -> str:
         return ""
 
 
-def build_app_html() -> str:
-    css = _read("styles.css")
-    pure_js = "\n".join(
-        f'<script>\n/* {p} */\n{_read(p)}\n</script>' for p in FILES_PURE_JS
-    )
-    jsx = "\n".join(
-        f'<script type="text/babel" data-presets="env,react">\n/* {p} */\n{_read(p)}\n</script>'
-        for p in FILES_JSX
-    )
-
-    api_key = _streamlit_api_key()
-    api_key_js = f"window.STREAMLIT_API_KEY = {json.dumps(api_key)};"
-
-    return f"""<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-  <title>Foundry — PO Capture</title>
-
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
-
-  <style>
-{css}
-
-/* Iframe fits the parent perfectly — no body scroll, only .main scrolls */
-html, body {{
-  height: 100vh !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  overflow: hidden !important;
-}}
-.app {{
-  height: 100vh !important;
-}}
-  </style>
-</head>
-<body>
-  <div id="root">
-    <div style="height:100vh;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-family:Inter,system-ui;font-size:13px;">
-      <div style="display:flex;align-items:center;gap:10px;">
-        <div style="width:14px;height:14px;border-radius:50%;border:2px solid #4f46e5;border-bottom-color:transparent;animation:spin 700ms linear infinite;"></div>
-        Loading Foundry...
-      </div>
-    </div>
-  </div>
-  <style>@keyframes spin {{ to {{ transform: rotate(360deg); }} }}</style>
-
-  <script>
-    {api_key_js}
-    // Tell Streamlit to size the iframe to the actual window height so the
-    // sidebar always fills the viewport and we don't get double scrollbars.
-    function _foundryResize() {{
-      const h = Math.max(window.innerHeight, document.documentElement.clientHeight);
-      try {{
-        window.parent.postMessage({{ type: 'streamlit:setFrameHeight', height: h }}, '*');
-      }} catch (e) {{ /* same-origin issues — ignore */ }}
-    }}
-    window.addEventListener('load', _foundryResize);
-    window.addEventListener('resize', _foundryResize);
-  </script>
-
-  <!-- Pure JS: utils, config, api (backend client), pdfParser, openrouter, excel, mock -->
-  {pure_js}
-
-  <!-- JSX: hooks, components, layout, features, views, App, main -->
-  {jsx}
-</body>
-</html>"""
-
-
-# ---------------------------------------------------------------------------
-# Render — iframe sized to fit a typical viewport. The internal CSS layout
-# pins the sidebar full-height; only .main scrolls.
-# ---------------------------------------------------------------------------
-components.html(build_app_html(), height=880, scrolling=False)
+components.html(
+    frontend_html.build_app_html(api_key=_streamlit_api_key()),
+    height=880,
+    scrolling=False,
+)

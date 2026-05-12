@@ -6,10 +6,20 @@
   'use strict';
 
   const BACKEND_PORT = 8503;
-  // Hardcode http:// — Streamlit's srcdoc iframe sets window.location.protocol
-  // to `about:` which would produce an invalid URL. 127.0.0.1 is always
-  // local-loopback HTTP for our use.
-  const BASE = `http://127.0.0.1:${BACKEND_PORT}`;
+  // Two deployment modes:
+  //   1. Streamlit dev (`streamlit run app.py`) — React lives inside a
+  //      components.html iframe with `srcdoc=<html>`, so its
+  //      window.location.protocol is "about:" — relative URLs are useless
+  //      there. Hit the FastAPI subprocess on 127.0.0.1:8503 directly.
+  //   2. Production (HF Spaces / any single-port deploy) — FastAPI itself
+  //      serves the React HTML at "/", so same-origin relative URLs work
+  //      and we don't need to know the host.
+  const BASE = (typeof window !== 'undefined'
+                && window.location
+                && window.location.protocol !== 'about:'
+                && window.location.protocol !== 'file:')
+    ? ''                                // same-origin (HF Spaces)
+    : `http://127.0.0.1:${BACKEND_PORT}`; // Streamlit srcdoc iframe
 
   async function request(path, opts = {}) {
     const url = BASE + path;
@@ -178,6 +188,14 @@
     return data.values || [];
   }
 
+  async function syncStatus() {
+    return request('/api/sync/status');
+  }
+
+  async function syncNow() {
+    return request('/api/sync/now', { method: 'POST' });
+  }
+
   async function listTeam() {
     return request('/api/team');
   }
@@ -210,5 +228,7 @@
     getDistinct,
     listTeam,
     setUserActive,
+    syncStatus,
+    syncNow,
   };
 })();

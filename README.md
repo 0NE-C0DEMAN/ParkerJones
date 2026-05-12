@@ -1,111 +1,209 @@
+---
+title: Foundry
+emoji: 📦
+colorFrom: indigo
+colorTo: violet
+sdk: docker
+app_port: 7860
+pinned: false
+short_description: PO extraction app — Parker Jones / Lekson Associates
+---
+
 # Foundry — PO Capture
 
-Drop a PDF purchase order, get structured data extracted by an LLM, review/edit, and append to a rolling Excel ledger.
+Drop a PDF purchase order, an LLM extracts structured data, review & edit, save to a shared ledger. Hosted on Hugging Face Spaces; data lives in Turso (cloud libSQL). Each rep just opens the Space URL and signs in — no install required.
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────┐
-│  Streamlit (app.py) — one-command launch             │
-│  └─ injects API key from .streamlit/secrets.toml     │
-│  └─ inlines all frontend files into one HTML         │
-│  └─ renders via streamlit.components.v1.html(...)    │
-│         ┌──────────────────────────────────────┐     │
-│         │  React app (frontend/)               │     │
-│         │  ├─ pdf.js (browser PDF parsing)     │     │
-│         │  ├─ OpenRouter (LLM extraction)      │     │
-│         │  └─ SheetJS (XLSX export)            │     │
-│         └──────────────────────────────────────┘     │
-└──────────────────────────────────────────────────────┘
+                   ┌────────────────────────────────┐
+                   │  Google Sheet (cloud)          │
+                   │  "Foundry — PO Ledger"         │
+                   │  Tabs: POs, LineItems, Users   │
+                   │  Owned by admin, shared with   │
+                   │  service account               │
+                   └─────────────┬──────────────────┘
+                                 │ Sheets API
+            ┌────────────────────┼────────────────────┐
+            ▼                    ▼                    ▼
+     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+     │ Rep 1's PC   │     │ Rep 2's PC   │     │ Rep N's PC   │
+     │ Foundry app  │     │ Foundry app  │     │ Foundry app  │
+     │ localhost    │     │ localhost    │     │ localhost    │
+     └──────────────┘     └──────────────┘     └──────────────┘
 ```
 
-The React frontend is fully modular — ~25 small files in `frontend/src/` — and registers components on `window.App` so they can load in dependency order without an ES-module bundler.
+Each rep installs the app once; from then on it auto-syncs with the shared Sheet. Free forever, no servers to host.
 
-## Quick start
+## What you need
+
+- Python 3.11+ ([download](https://www.python.org/downloads/))
+- A Google Account (for the shared Sheet)
+- A free Google Cloud project (one-time setup by the admin)
+- An OpenRouter or Gemini API key (free tiers work fine)
+
+## One-time admin setup
+
+Done once by Parker / the admin.
+
+### 1. Create the Google Cloud project + service account
+
+1. Go to [console.cloud.google.com](https://console.cloud.google.com) → create a new project ("foundry-parker" or similar).
+2. **APIs & Services → Library:** enable **Google Sheets API** and **Google Drive API**.
+3. **APIs & Services → Credentials → + Create credentials → Service account.** Name it `foundry-app`. Skip the optional steps, click Done.
+4. Click the service account → **Keys → Add key → Create new key → JSON.** A JSON file downloads. Keep it safe; never commit it.
+
+### 2. Create the shared Google Sheet
+
+1. Open [sheets.google.com](https://sheets.google.com) → New blank sheet → rename to "Foundry — PO Ledger".
+2. **Share** → paste the service account email (from the JSON's `client_email`, looks like `foundry-app@foundry-parker.iam.gserviceaccount.com`) → set as **Editor** → uncheck "Notify people" → Send.
+3. Copy the sheet ID from the URL: `https://docs.google.com/spreadsheets/d/{THIS_PART}/edit`.
+
+### 3. Distribute to your reps
+
+You need to send each rep:
+- The full project folder (clone from GitHub or zip it)
+- A `.streamlit/secrets.toml` file with:
+  - The OpenRouter / Gemini API key
+  - `FOUNDRY_DB_BACKEND = "sheets"`
+  - The Sheet ID
+  - The service account JSON (under `[gcp_service_account]`)
+- An entry for them in `users.yaml` (see below)
+
+A template is at `.streamlit/secrets.toml.example` — copy + fill in.
+
+### 4. Edit `users.yaml`
+
+Add each rep's email and role:
+
+```yaml
+invited:
+  - email: parker@lekson.com
+    role: admin
+    name: Parker Jones
+  - email: jane@lekson.com
+    role: rep
+    name: Jane Doe
+  # ...
+
+require_invitation: true
+default_role: rep
+session_days: 7
+jwt_secret: "{run: python -c \"import secrets; print(secrets.token_hex(32))\"}"
+```
+
+### 5. Initialize the sheet
+
+Once your `secrets.toml` is in place:
 
 ```
-start_streamlit.bat              # Windows one-click
-# OR
-streamlit run app.py
+python -c "import db; db.init()"
 ```
 
-Then open http://localhost:8502.
+This creates the three tabs (POs, LineItems, Users) with proper headers, idempotently.
 
-## Configure the API key
+### 6. Optionally migrate existing local data
 
-Two places it can come from (in priority order):
+If you've been using SQLite during dev and want to copy your data into the Sheet:
 
-1. **In-app Settings panel** — the cleanest user-facing flow. Saved to browser localStorage. Per-user.
-2. **`.streamlit/secrets.toml`** — deployment default for all users. Copy `secrets.toml.example`:
-   ```toml
-   OPENROUTER_API_KEY = "sk-or-v1-..."
-   ```
-3. Hardcoded fallback in `frontend/src/lib/config.js` — last resort.
+```
+python migrate_sqlite_to_sheets.py --dry-run    # preview
+python migrate_sqlite_to_sheets.py              # actually copy
+```
 
-Get a key at <https://openrouter.ai/keys>.
+Safe to re-run — skips rows whose `id` is already in the sheet.
 
-## Try it
+## Per-rep setup (5 minutes per machine)
 
-Drag any of the three sample POs from this folder onto the dropzone:
-- `Meridian_Supply_PO_13214085.pdf` — single line item, $1,432.50
-- `Apex_Power_Group_FL_PO_13213236.pdf` — single line item, $15,232 (30 pages, mostly T&Cs)
-- `Summit_Industrial_PO_115835 (1).pdf` — 13 line items, $541,010
+Each rep installs the app on their own laptop. **They never need to touch any GCP / Google Cloud stuff.**
 
-## Two ways to run
+1. Install Python 3.11+ from [python.org](https://www.python.org/downloads/) (one-time per machine).
+2. Either:
+   - `git clone https://github.com/0NE-C0DEMAN/ParkerJones.git`
+   - or download the ZIP from GitHub
+3. Drop the `.streamlit/secrets.toml` Parker emailed into the `.streamlit/` folder.
+4. Double-click **`setup.bat`** (installs Python dependencies).
+5. Double-click **`start_streamlit.bat`** to launch.
+6. Browser opens at `http://localhost:8502`.
+7. Click **Create account**, register with their invited email + a password.
+8. Done. They're in.
 
-| Mode | Command | Use case |
+## Updates
+
+When the admin pushes new code to GitHub:
+
+```
+double-click update.bat
+```
+
+That runs `git pull` + reinstalls any new dependencies. Restart the app and they have the new version.
+
+## Switching backends
+
+The app supports two storage modes:
+
+| Mode | When to use | How to switch |
 |---|---|---|
-| **Streamlit** (recommended) | `streamlit run app.py` | End users, deployment, secrets management |
-| **Static HTTP** (dev) | `cd frontend && python -m http.server 8000` | Frontend-only iteration without Streamlit overhead |
+| **SQLite** (local file) | Local dev or single-user demo | `FOUNDRY_DB_BACKEND = "sqlite"` in `secrets.toml` (or unset) |
+| **Sheets** (shared cloud) | Multi-user prod | `FOUNDRY_DB_BACKEND = "sheets"` in `secrets.toml` + `[gcp_service_account]` block |
 
-Both modes serve the exact same React app. Streamlit just adds the API-key-from-secrets injection and a cleaner one-command launch.
+The frontend, auth, extraction pipeline, and Excel export work identically with either backend.
 
-## Files
+## File layout
 
 ```
 ParkerJones/
-├── app.py                     # Streamlit entry — bundles + serves the React app
-├── requirements.txt           # streamlit
-├── start_streamlit.bat        # Windows launcher
+├── app.py                     # Streamlit entry — auto-spawns the FastAPI backend
+├── backend.py                 # FastAPI routes
+├── auth.py                    # JWT, bcrypt, YAML invitation check
+├── db.py                      # Dispatcher — picks SQLite or Sheets
+├── db_sqlite.py               # SQLite implementation
+├── db_sheets.py               # Google Sheets implementation
+├── excel_export.py            # XLSX builder (openpyxl)
+├── migrate_sqlite_to_sheets.py  # One-shot SQLite → Sheets copy
+├── users.yaml                 # Invitation list (gitignored)
+├── users.yaml.example         # Template
+├── requirements.txt
+├── setup.bat                  # First-time install
+├── update.bat                 # Pull latest + reinstall
+├── start_streamlit.bat        # Launch the app
 ├── .streamlit/
-│   ├── config.toml            # theme, port (8502), runOnSave
-│   └── secrets.toml.example   # template for OPENROUTER_API_KEY
-└── frontend/
-    ├── index.html             # standalone (dev) entry
-    ├── styles.css             # design system
-    ├── start.bat              # static HTTP launcher (dev)
+│   ├── config.toml            # Theme + port
+│   └── secrets.toml           # API key + Sheet config (gitignored)
+└── frontend/                  # React app (loaded via Babel-from-CDN)
+    ├── styles.css
+    ├── index.html
     └── src/
-        ├── lib/               # utils, config, openrouter, pdfParser, excel, hooks
-        ├── components/        # 11 atoms (Icon, Button, Card, Dropzone, ...)
+        ├── App.jsx
+        ├── main.jsx
+        ├── lib/               # utils, auth, gemini, openrouter, api, pdfParser
+        ├── components/        # Icon, Button, Card, Badge, Dropzone, ...
+        ├── features/          # POHeader, LineItemsTable, RepositoryTable,
+        │                      # Charts, ActivityLog, CommandPalette, ...
         ├── layout/            # Sidebar, TopBar
-        ├── features/          # POHeader, LineItemsTable, RepositoryTable, ...
-        ├── views/             # UploadView, ReviewView, RepositoryView, SettingsView
-        ├── App.jsx            # root component
-        └── main.jsx           # boot
+        └── views/             # Upload, Review, Repository, Profile, Team, Settings
 ```
 
-## What works · what's coming
+## Cost
 
-| Feature | Status |
-|---|---|
-| Drag-drop PDF upload | ✅ Real |
-| Text-based PDF parsing (pdf.js) | ✅ Real |
-| LLM extraction (OpenRouter / Claude / GPT) | ✅ Real |
-| Editable review form with auto-totals | ✅ Real |
-| Two-sheet XLSX export | ✅ Real |
-| Local repository persistence | ✅ Real (browser localStorage) |
-| Settings: API key, model, ledger management | ✅ Real |
-| Scanned PDF / OCR | ⏳ Needs Python backend (Tesseract) |
-| DOCX support | ⏳ Needs Python backend (python-docx) |
-| OneDrive ledger sync | ⏳ Future (Microsoft Graph API) |
-| Multi-rep collaboration | ⏳ Future (shared backend) |
-| Re-edit a saved PO | ⏳ Nice-to-have |
+Free forever for the scale Foundry was built for (10 users, ~1k POs/year):
 
-## Cost notes
+| | Free tier | Foundry uses |
+|---|---|---|
+| Google Sheets API | 60 reads/min/user, 60 writes/min/user | < 1/min in practice |
+| Google Drive (PDFs) | 15 GB | ~10 MB total |
+| Gemini API | 1500 req/day | ~10/day |
+| OpenRouter | varies | optional fallback |
 
-OpenRouter pricing on `claude-sonnet-4.5`:
-- ~$0.005 per single-line PO (Meridian)
-- ~$0.025 per dense multi-page PO (Apex with T&Cs)
-- ~$0.04 per multi-line PO (Summit, 13 lines)
+No hosting fees because the app runs on each rep's PC.
 
-A $5 top-up on OpenRouter is enough for ~150–500 PO extractions depending on size. For testing on the free tier, switch the model to **Claude Haiku 4.5** in Settings — same accuracy on PO extraction, 3× cheaper.
+## Security notes
+
+- `users.yaml` and `.streamlit/secrets.toml` are gitignored — never commit them.
+- The service account JSON has Editor access to the Sheet. Treat it like a password. If a rep leaves, rotate the service account and redistribute.
+- Passwords are bcrypt-hashed (cost factor 12).
+- JWT tokens stored in browser localStorage, expire in 7 days.
+
+## License
+
+Internal use only. © Lekson Associates.
