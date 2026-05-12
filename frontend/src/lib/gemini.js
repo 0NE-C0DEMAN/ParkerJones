@@ -116,20 +116,45 @@ NAME RULES (never concatenate, never hallucinate)
 5. buyer_email = the buyer's personal email. Do NOT use generic invoicing addresses like "TEMA.INVOICES@…" or "ap@…" or "SCSInvoices@…" — those go nowhere useful; leave buyer_email as "" if no personal email is shown.
 
 LINE ITEMS
-- Each row in the line-items table becomes one object in line_items[].
-- "customer_part": the BUYER'S part number. Labels: "Customer Part #", "Item #", "Stock Code", "Buyer Part", "Product". On Ariba layouts the customer's item number appears as "Line <NUMBER>" at the start of the row (e.g. "Line 1624939 ..." → customer_part = "1624939"; "Line 4002005 ..." → customer_part = "4002005").
-- "vendor_part":   the SUPPLIER'S part number. Labels: "Vendor Part #", "Mfr Part #", "Catalog #", "Model #", "Mfr Model #", "Manufacturer Part Number".
-  ⚠️ The LABEL decides the field, NOT what the code looks like. Even if a "Mfr Part #" value reads like "DUKE-GB-DMA-70-70-FX-12-BK" (it has the customer's name in it), it still belongs in vendor_part because the label says "Mfr Part #".
-- If only one part number is given, put it in vendor_part.
-- If a "PLEASE FURNISH #" or continuation block lists ADDITIONAL identifiers spanning multiple lines, include ALL of them in customer_part separated by a single space.
+
+DESCRIPTION IS THE CANONICAL FIELD FOR PARTS
+The "description" field is the AUTHORITATIVE single source of truth for every line. **ALWAYS** lead the description with EVERY part identifier the document shows for that line, even if you ALSO fill customer_part / vendor_part below. The description must be self-contained: a rep reading the description alone should see every part code that appears on that line of the original PO.
+
+Identifiers to include at the start of description (space-separated, in roughly the order they appear in the document):
+  - Item # / Stock Code / Customer Part # / Buyer Part #
+  - Mfr Part # / Vendor Part # / Mfr Model # / Catalog # / Manufacturer Part Number
+  - Santee Cooper PN / customer-specified principal part #
+  - "PLEASE FURNISH #" continuation codes
+  - any extra Cat #, model #, drawing #, U-number
+
+Then " — " (space hyphen space) and the actual product description text.
+
+Worked example (TEMA):
+  Raw line in the doc:
+    1   450 EA  39004430              145.5000 EA    65,475.00
+                CRTKAA08E120510KTHVAU0037
+                SEC LGT HEAD ONLY 29W LED
+                PLEASE FURNISH #
+                CRTK2-C016-D-U-T5R-U0-TH-4N7-10MSP-V-A-10
+                X-U126120.
+  Output:
+    description = "39004430 CRTKAA08E120510KTHVAU0037 CRTK2-C016-D-U-T5R-U0-TH-4N7-10MSP-V-A-10 X-U126120 — SEC LGT HEAD ONLY 29W LED"
+
+OPTIONAL STRUCTURED PART FIELDS (only when labels are UNAMBIGUOUS)
+- "customer_part" — only fill when a label clearly says "Customer Part #", "Stock Code", "Buyer Part #", or on Ariba layouts where the row starts "Line <NUMBER>" (then NUMBER → customer_part, e.g. "Line 1624939 ..." → "1624939").
+- "vendor_part" — only fill when a label clearly says "Mfr Part #", "Vendor Part #", "Mfr Model #", "Catalog #", or "Manufacturer Part Number". The LABEL decides — even if the value looks like "DUKE-GB-DMA-70-70-FX-12-BK", a label of "Mfr Part #" means vendor_part.
+- If the column header is just "ITEM" (no qualifier), or you cannot tell which side of the relationship a code belongs to, leave BOTH customer_part and vendor_part as "" — the description already has every identifier the rep needs.
+
+OTHER LINE FIELDS
 - "amount" (a.k.a. "Extension", "Extended", "Line Cost", "Net") = quantity × unit_price. If only one is given, compute the other.
-- "uom" (a.k.a. "Qty UM", "Units") defaults to "EA" if not specified.
+- "uom" (a.k.a. "Qty UM", "Units", "U/M"): Use the EXACT unit shown on the document — EA, BX, CS, LT, FT, M, LB, KG, RL, PK, PR, etc. If the doc shows "BX" use "BX", never normalize to "EA". Only fall back to "EA" when NO unit is shown anywhere on the line.
+- "quantity" — plain number. If the doc shows "12 BX" then quantity=12 and uom="BX".
 - "required_date" (a.k.a. "Due Date", "Need By", "Ship Date"): delivery / required-by date for that line.
 - "notes" (PER-LINE): short additional instructions specific to this line — examples from real POs:
     "30 PER PALLET", "Ship by 5/18/2026", "PLEASE SHIP X OR SOONER",
     "DO NOT SHIP USING AAA COOPER", "Quote # 859-0002746-009 applies",
     "Santee Cooper PN 390287603 Ln # 35", "Mfr: VALMONT".
-  Keep it concise — one short paragraph max per line, line breaks as \\n. Don't dump the entire description here.
+  Keep it concise — one short paragraph max per line, line breaks as \\n. Don't repeat the description here.
 
 PO-LEVEL NOTES (top-level "notes" field)
 Collect SHORT PO-specific instructions only. Keep notes under ~10 lines / ~500 characters total. Multiple notes separated by \\n.

@@ -24,8 +24,15 @@
   const DEFAULT_API_KEYS = [];
   const DEFAULT_API_KEY = '';
 
-  // Default model — Gemini 2.5 Flash Lite is the most generous free-tier model.
-  const DEFAULT_MODEL = 'gemini-2.5-flash-lite';
+  // Default model — Gemini 2.5 Flash. On a bake-off across all 5 reference
+  // POs, Flash beat Flash-Lite 5-to-1 on invoice-critical fields (correctly
+  // identified ALLIED COMPONENTS as Meridian's supplier where Lite confused
+  // the customer for the supplier; got the Ariba Mfr Part # / Item # split
+  // right on Duke; stripped the "R" reference code from TEMA ship_to).
+  // Cost at ~1000 POs/day is roughly $30/month vs. $15/month — small price
+  // for eliminating wrong-vendor invoice routing. Lite remains selectable
+  // in Settings for cost-sensitive use.
+  const DEFAULT_MODEL = 'gemini-2.5-flash';
 
   const API_KEY_STORAGE = 'foundry.openrouter.apiKey';   // legacy name, holds whichever provider's key
   const MODEL_STORAGE = 'foundry.openrouter.model';
@@ -33,8 +40,8 @@
   // Models the user can choose from in Settings. Each one declares its
   // provider so the extractor knows which client to call.
   const AVAILABLE_MODELS = [
-    { id: 'gemini-2.5-flash-lite',         label: 'Gemini 2.5 Flash Lite', tag: 'Recommended · Free, fastest',  provider: 'google' },
-    { id: 'gemini-2.5-flash',              label: 'Gemini 2.5 Flash',      tag: 'Free · higher quality',        provider: 'google' },
+    { id: 'gemini-2.5-flash',              label: 'Gemini 2.5 Flash',      tag: 'Recommended · best accuracy',  provider: 'google' },
+    { id: 'gemini-2.5-flash-lite',         label: 'Gemini 2.5 Flash Lite', tag: 'Cheapest · less accurate',     provider: 'google' },
     { id: 'gemini-2.5-pro',                label: 'Gemini 2.5 Pro',        tag: 'Highest quality (paid)',       provider: 'google' },
     { id: 'anthropic/claude-haiku-4.5',    label: 'Claude Haiku 4.5',      tag: 'Cheap (OpenRouter)',           provider: 'openrouter' },
     { id: 'anthropic/claude-sonnet-4.5',   label: 'Claude Sonnet 4.5',     tag: 'Mid-tier (OpenRouter)',        provider: 'openrouter' },

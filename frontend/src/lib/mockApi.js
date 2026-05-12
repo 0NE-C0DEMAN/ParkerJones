@@ -147,6 +147,29 @@
   // Normalize raw LLM output into our PO schema
   // ----------------------------------------------------------------------
 
+  // Common UOMs that get truncated to a single character by narrow column
+  // widths in pdfplumber's layout-preserving text extraction. When the LLM
+  // returns the truncated form, expand it back. Order matters — we only
+  // expand single-character or two-character codes.
+  const UOM_TRUNCATIONS = {
+    E: 'EA',    // EACH
+    B: 'BX',    // BOX
+    C: 'CS',    // CASE
+    L: 'LB',    // LB / LT — ambiguous, prefer LB; rep can edit
+    K: 'KG',
+    F: 'FT',
+    R: 'RL',    // ROLL
+    P: 'PK',    // PACK
+    M: 'M',     // already canonical
+  };
+
+  function normUom(raw) {
+    const u = String(raw || '').trim().toUpperCase();
+    if (!u) return 'EA';
+    if (u.length === 1 && UOM_TRUNCATIONS[u]) return UOM_TRUNCATIONS[u];
+    return u;
+  }
+
   function normalize(data) {
     const items = Array.isArray(data?.line_items) ? data.line_items : [];
 
@@ -160,7 +183,7 @@
         vendor_part: String(it.vendor_part || '').trim(),
         description: String(it.description || '').trim(),
         quantity,
-        uom: String(it.uom || 'EA').trim(),
+        uom: normUom(it.uom),
         unit_price,
         amount: Number.isFinite(amount) && amount > 0 ? amount : +(quantity * unit_price).toFixed(2),
         required_date: normDate(it.required_date),
