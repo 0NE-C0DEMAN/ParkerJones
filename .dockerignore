@@ -18,9 +18,10 @@ foundry.db-wal
 *.sqlite
 *.sqlite3
 .foundry/
-# `files/` IS shipped — it contains the seed source PDFs that are tracked in
-# git (force-added on top of .gitignore). Runtime uploads go to the same
-# directory but live only in the running container.
+# `files/` is provided by a bucket mount at runtime
+# (hf://buckets/SamTwo/foundry-sources mounted at /home/user/app/files).
+# Don't ship local PDFs in the image — they'd just be shadowed by the mount.
+files/
 
 # Editor / IDE
 .vscode/

@@ -123,7 +123,13 @@ For offline-only development without Turso, set `FOUNDRY_DB_BACKEND = "sqlite"` 
 
 ## Source-file persistence
 
-The 5 seed PDFs ship inside the Docker image — they survive every container restart. **New uploads via the web UI write to the same directory but only persist until the next restart** (HF free tier has no persistent disk). To make new uploads durable, switch the source-file backend to an external object store (Cloudflare R2 has a generous free tier); a `backend.py` patch is the work.
+All source PDFs live in a **Hugging Face Storage Bucket** (`SamTwo/foundry-sources`, private), mounted into the Space as a read-write filesystem at `/home/user/app/files`. `backend.py` reads/writes from the local path; the mount transparently fans those out to the bucket, so:
+
+- New uploads through the UI survive container restarts
+- The Space repo stays code-only (no binary PDFs in git)
+- No backend code is bucket-aware — it's just files on disk from the app's perspective
+
+Configured once via `hf spaces volumes set SamTwo/foundry -v hf://buckets/SamTwo/foundry-sources:/home/user/app/files`. Inspect or change with `hf spaces volumes ls SamTwo/foundry`. Storage uses the free 100 GB private quota; current usage is well under 1 MB.
 
 ## Security
 
