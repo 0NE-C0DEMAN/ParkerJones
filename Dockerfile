@@ -1,40 +1,40 @@
 # Foundry — PO Capture
 # Production image for Hugging Face Spaces (Docker SDK).
 #
-# HF Spaces runs the container with HOME=/data (writable persistent disk on paid tiers)
-# and expects the app to listen on $PORT (default 7860).
+# HF runs containers as a non-root user (UID 1000). The standard pattern is
+# to work under $HOME so the user owns the directory tree by default —
+# otherwise `mkdir` etc. fail with EACCES on /app.
 #
-# We do NOT bake credentials in. At runtime, set these as Space "Variables and
-# secrets" in the Settings tab:
+# Runtime configuration comes from Space "Variables and secrets":
 #   FOUNDRY_DB_BACKEND  = turso
 #   TURSO_DB_URL        = libsql://...turso.io
 #   TURSO_DB_TOKEN      = eyJhbGciOi...
 #   OPENROUTER_API_KEY  = AIza...  (or sk-or-v1-...)
-#   FOUNDRY_JWT_SECRET  = <hex secret>
+#   FOUNDRY_JWT_SECRET  = <hex>
 
 FROM python:3.11-slim
 
-# Avoid prompts, write .pyc out of the layer, log straight to stdout
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Hugging Face runs the container as a non-root user (UID 1000). Make sure
-# the working directory and python user-site are writable by that user.
+# Non-root user (HF convention). `-m` creates /home/user which user owns.
 RUN useradd -m -u 1000 user
-WORKDIR /app
+USER user
+ENV HOME=/home/user \
+    PATH=/home/user/.local/bin:$PATH
+WORKDIR $HOME/app
 
-# Install Python deps first so this layer is cached across code-only changes
+# Install Python deps to ~/.local — separated from app code so this layer
+# caches across edits.
 COPY --chown=user:user requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --user --no-cache-dir -r requirements.txt
 
-# Copy the rest of the app
+# Copy app source. --chown makes everything writable by `user` at runtime,
+# so backend.py can mkdir ./files for uploaded sources.
 COPY --chown=user:user . .
 
-USER user
-
-# HF Spaces routes traffic to $PORT (defaults to 7860 for Docker SDK)
 ENV PORT=7860
 EXPOSE 7860
 
