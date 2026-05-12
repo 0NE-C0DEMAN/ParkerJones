@@ -2,7 +2,10 @@
    config.js — Provider/model/key configuration.
 
    Supports multiple LLM providers, auto-detected from the API key prefix:
-     - "AIzaSy..." → Google Gemini  (recommended for free tier — 1500/day)
+     - "AIzaSy..." → Google Gemini   (free tier; check AI Studio for current
+                                      rate limits — Google publishes them
+                                      per-account these days, not as a fixed
+                                      public number)
      - "sk-or-..."  → OpenRouter
      - "sk-..."     → OpenAI direct (not implemented)
 
@@ -30,12 +33,12 @@
   // Models the user can choose from in Settings. Each one declares its
   // provider so the extractor knows which client to call.
   const AVAILABLE_MODELS = [
-    { id: 'gemini-2.5-flash-lite',         label: 'Gemini 2.5 Flash Lite', tag: 'Recommended · Free 1500/day', provider: 'google' },
-    { id: 'gemini-2.5-flash',              label: 'Gemini 2.5 Flash',      tag: 'Free · Better quality',       provider: 'google' },
-    { id: 'gemini-2.5-pro',                label: 'Gemini 2.5 Pro',        tag: 'Most accurate (paid)',         provider: 'google' },
-    { id: 'anthropic/claude-haiku-4.5',    label: 'Claude Haiku 4.5',      tag: 'Cheap (OpenRouter)',          provider: 'openrouter' },
-    { id: 'anthropic/claude-sonnet-4.5',   label: 'Claude Sonnet 4.5',     tag: 'OpenRouter',                  provider: 'openrouter' },
-    { id: 'anthropic/claude-opus-4.6',     label: 'Claude Opus 4.6',       tag: 'Expensive (OpenRouter)',      provider: 'openrouter' },
+    { id: 'gemini-2.5-flash-lite',         label: 'Gemini 2.5 Flash Lite', tag: 'Recommended · Free, fastest',  provider: 'google' },
+    { id: 'gemini-2.5-flash',              label: 'Gemini 2.5 Flash',      tag: 'Free · higher quality',        provider: 'google' },
+    { id: 'gemini-2.5-pro',                label: 'Gemini 2.5 Pro',        tag: 'Highest quality (paid)',       provider: 'google' },
+    { id: 'anthropic/claude-haiku-4.5',    label: 'Claude Haiku 4.5',      tag: 'Cheap (OpenRouter)',           provider: 'openrouter' },
+    { id: 'anthropic/claude-sonnet-4.5',   label: 'Claude Sonnet 4.5',     tag: 'Mid-tier (OpenRouter)',        provider: 'openrouter' },
+    { id: 'anthropic/claude-opus-4.6',     label: 'Claude Opus 4.6',       tag: 'Expensive (OpenRouter)',       provider: 'openrouter' },
   ];
 
   // ----- key + model accessors -----

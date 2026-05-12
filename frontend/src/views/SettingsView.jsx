@@ -174,7 +174,8 @@
                   ))}
                 </div>
                 <span className="text-sm text-muted mt-2" style={{ fontSize: 11.5 }}>
-                  Sonnet 4.5 is the recommended default — accurate enough for dense industrial POs at $3/M input tokens.
+                  Default is Gemini 2.5 Flash Lite — fastest and free. Switch up if you need more accuracy on complex POs. Per-tier rate limits live in your{' '}
+                  <a href="https://aistudio.google.com/rate-limit" target="_blank" rel="noopener" style={{ color: 'var(--accent)' }}>AI Studio dashboard</a>.
                 </span>
               </Field>
             </div>
