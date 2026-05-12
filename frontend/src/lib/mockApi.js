@@ -1,23 +1,24 @@
 /* ==========================================================================
    extractor (window.App.api) — PO extraction pipeline.
 
-   STRATEGY (vision-only, capped):
-     For every PDF, render the first MAX_EXTRACT_PAGES pages to images and
-     send them to the vision LLM. Pages 4+ on the industrial POs we've
-     audited are pure Standard-Terms-&-Conditions boilerplate, so a 3-page
-     cap covers the actual PO content (header + line items + any spillover)
-     without wasting tokens on legalese.
+   STRATEGY: text via server-side pdfplumber.
 
-   Why image-based instead of text-based:
-     - No column flattening (pdf.js linearizes side-by-side columns).
-     - No overlaid template text (Ariba PDFs draw "DEF Purchasing Company"
-       under "APG Purchasing Company"; the rendered image only shows the
-       value on top).
-     - Same accuracy on numbers when paired with a precise prompt.
+     1. Get page count of the PDF (cheap, client-side).
+     2. POST the PDF to /api/extract/parse — server parses the first
+        MAX_EXTRACT_PAGES pages with pdfplumber.extract_text(layout=True)
+        plus a last-wins char dedup pass (handles overlaid template text
+        on Ariba-style PDFs).
+     3. Send the resulting text to the LLM (Gemini text endpoint).
+     4. Normalize and return.
 
-   The /api/extract/parse server endpoint and api.js parsePdfOnServer helper
-   are intentionally retained — they're not in the hot path today, but
-   they're useful for debugging and a possible future text-mode fallback.
+   Vision was tried earlier but Gemini 2.5 Flash-Lite was returning empty
+   extractions for our industrial POs. The pdfplumber + dedup + improved
+   prompt combo is reliable: layout columns are preserved by the parser,
+   overlaid placeholder text is stripped, and the text token cost is
+   roughly 10× lower than vision.
+
+   Pages 4+ on industrial PO templates are pure Standard Terms & Conditions
+   boilerplate — never useful for extraction — so we cap at MAX_EXTRACT_PAGES.
 
    Filename `mockApi.js` is preserved for backward compat with the existing
    <script> tag.
@@ -26,8 +27,8 @@
   'use strict';
 
   // Hard cap on the number of pages we ever ship to the LLM. Pages 4+ on
-  // industrial PO templates are T&Cs boilerplate. Bump cautiously if you
-  // ever start seeing line-item tables that legitimately spill past page 3.
+  // industrial PO templates are T&Cs boilerplate. The server enforces the
+  // same cap independently.
   const MAX_EXTRACT_PAGES = 3;
 
   // Per-call retry policy for transient errors (429, 5xx, network blips).
@@ -35,7 +36,7 @@
   const RETRY_BASE_MS = 1500;
 
   /**
-   * Run the extraction pipeline on a file. Always uses the vision path.
+   * Run the extraction pipeline on a file. Server-side pdfplumber → text LLM.
    * @param {File} file
    * @param {{ onStage?: (stage: string, label?: string) => void }} opts
    */
@@ -49,35 +50,65 @@
     const client = provider === 'google' ? window.App.gemini : window.App.openrouter;
     if (!client) throw new Error(`Provider "${provider}" client not loaded.`);
 
-    const renderedPages = Math.min(pageCount, MAX_EXTRACT_PAGES);
-    const stageMsg = pageCount <= MAX_EXTRACT_PAGES
-      ? `${pageCount} page${pageCount === 1 ? '' : 's'} — extracting with vision model`
-      : `${pageCount}-page PDF — extracting first ${MAX_EXTRACT_PAGES} pages with vision model (rest is T&Cs)`;
-    onStage?.('extracting', stageMsg);
+    onStage?.('extracting',
+      pageCount > MAX_EXTRACT_PAGES
+        ? `${pageCount}-page PDF — parsing first ${MAX_EXTRACT_PAGES} pages on server`
+        : `${pageCount} page${pageCount === 1 ? '' : 's'} — parsing on server`);
 
-    const { images } = await window.App.pdfParser.renderPagesToImages(file, {
-      maxPages: MAX_EXTRACT_PAGES,
-    });
-    if (!images || images.length === 0) {
-      throw new Error('Could not render any pages from this PDF.');
+    const warnings = [];
+
+    // Server parses with pdfplumber layout=True + last-wins char dedup.
+    // Falls back to client-side pdf.js text if the server is unreachable.
+    let pages;
+    let pageCountFull = pageCount;
+    let parsedPageCount = Math.min(pageCount, MAX_EXTRACT_PAGES);
+    try {
+      const parsed = await window.App.backend.parsePdfOnServer(file, MAX_EXTRACT_PAGES);
+      pages = Array.isArray(parsed.pages) ? parsed.pages : [parsed.text || ''];
+      pageCountFull = parsed.page_count_full ?? pageCount;
+      parsedPageCount = parsed.page_count ?? pages.length;
+      if (parsed.truncated) {
+        onStage?.('extracting',
+          `Parsed pages 1–${parsedPageCount} of ${pageCountFull} (rest is T&Cs) — extracting fields`);
+      } else {
+        onStage?.('extracting',
+          `Extracting fields with ${provider === 'google' ? 'Gemini' : 'Claude/GPT'}`);
+      }
+    } catch (err) {
+      console.warn('Foundry: server parse failed, falling back to pdf.js text', err);
+      warnings.push(
+        'Server PDF parse was unavailable — used browser-side text extraction. ' +
+        'Multi-column blocks may be confused; double-check addresses on this PO.'
+      );
+      const fallback = await window.App.pdfParser.readFile(file);
+      const allPages = Array.isArray(fallback.pages) ? fallback.pages : [fallback.text || ''];
+      pages = allPages.slice(0, MAX_EXTRACT_PAGES);
+      parsedPageCount = pages.length;
     }
 
+    const fullText = pages
+      .map((p, i) => `--- Page ${i + 1} ---\n${p}`)
+      .join('\n\n');
+
     const raw = await _callWithRetry(
-      () => client.extractWithVision(images, { apiKeys, model }),
-      { label: 'vision extraction' }
+      () => client.extractWithLLM(fullText, { apiKeys, model }),
+      { label: 'text extraction' }
     );
 
     onStage?.('validating', 'Validating');
     const normalized = normalize(raw);
-    normalized.extraction_method = 'vision';
-    // If we trimmed pages, surface that so the rep knows to spot-check
-    // whether anything important lived past page 3.
-    if (renderedPages < pageCount) {
-      normalized._warnings = [
-        `Pages ${renderedPages + 1}–${pageCount} of ${pageCount} were skipped (assumed T&Cs / boilerplate). ` +
-        `If a line item appears to be missing, re-upload just those pages as a separate PO.`,
-      ];
+    normalized.extraction_method = 'text';
+
+    // If we trimmed pages, note that the rep should glance past page 3
+    // in their copy of the PDF in case a line item lives there.
+    if (parsedPageCount < pageCountFull) {
+      warnings.push(
+        `Pages ${parsedPageCount + 1}–${pageCountFull} of ${pageCountFull} were skipped ` +
+        `(assumed T&Cs / boilerplate). If a line item appears to be missing, ` +
+        `re-upload just those pages as a separate PO.`
+      );
     }
+    if (warnings.length) normalized._warnings = warnings;
     return normalized;
   }
 
