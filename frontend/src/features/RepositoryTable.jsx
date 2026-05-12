@@ -179,7 +179,18 @@
                     <div className="text-xs">Line items · {record.po_number}</div>
                     <div className="text-sm text-muted mt-1">{record.filename}</div>
                   </div>
-                  <div className="flex gap-2 items-center">
+                  <div className="flex gap-2 items-center" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    {record.supplier_code && (
+                      <Badge tone="default" title={`Supplier code at ${record.customer || 'customer'}`}>
+                        <Icon name="hash" size={11} />Supplier #: <span style={{ fontFamily: 'JetBrains Mono' }}>{record.supplier_code}</span>
+                      </Badge>
+                    )}
+                    {record.contract_number && (
+                      <Badge tone="default"><Icon name="file-text" size={11} />Contract #: <span style={{ fontFamily: 'JetBrains Mono' }}>{record.contract_number}</span></Badge>
+                    )}
+                    {record.quote_number && (
+                      <Badge tone="default"><Icon name="tag" size={11} />Quote #: <span style={{ fontFamily: 'JetBrains Mono' }}>{record.quote_number}</span></Badge>
+                    )}
                     {record.bill_to && (
                       <Badge tone="default"><Icon name="map-pin" size={11} />Bill: {truncate(record.bill_to.split('\n')[0], 24)}</Badge>
                     )}
@@ -188,6 +199,10 @@
                     )}
                   </div>
                 </div>
+
+                {/* Terms & contacts strip — only shows fields that are actually populated */}
+                <DetailStrip record={record} />
+
                 <div className="expanded-grid">
                   <table className="expanded-line-table" style={{ minWidth: 0, tableLayout: 'fixed' }}>
                     <thead>
@@ -197,9 +212,11 @@
                         <th>Vendor Part</th>
                         <th>Description</th>
                         <th style={{ width: 50 }} className="col-num">Qty</th>
+                        <th style={{ width: 50 }}>UOM</th>
                         <th style={{ width: 90 }} className="col-num">Unit</th>
                         <th style={{ width: 100 }} className="col-num">Amount</th>
                         <th style={{ width: 100 }}>Required</th>
+                        <th>Notes</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -210,13 +227,25 @@
                           <td style={{ fontFamily: 'JetBrains Mono', fontSize: 11.5 }}>{it.vendor_part || '—'}</td>
                           <td title={it.description}>{truncate(it.description, 60)}</td>
                           <td className="col-num">{it.quantity}</td>
+                          <td>{it.uom || '—'}</td>
                           <td className="col-num">{formatCurrency(it.unit_price, record.currency)}</td>
                           <td className="col-num" style={{ fontWeight: 600 }}>{formatCurrency(it.amount, record.currency)}</td>
                           <td>{formatDate(it.required_date)}</td>
+                          <td className="text-sm text-muted" title={it.notes}>{truncate(it.notes || '', 40) || '—'}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
+
+                  {record.notes && (
+                    <div className="card mt-3" style={{ padding: 12, background: 'var(--bg-subtle)' }}>
+                      <div className="text-xs mb-2" style={{ fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        <Icon name="info" size={11} /> &nbsp; PO Notes
+                      </div>
+                      <div className="text-sm" style={{ whiteSpace: 'pre-wrap', color: 'var(--text)' }}>{record.notes}</div>
+                    </div>
+                  )}
+
                   {ActivityLog && <ActivityLog record={record} compact />}
                 </div>
               </div>
@@ -224,6 +253,52 @@
           </tr>
         )}
       </>
+    );
+  }
+
+  /**
+   * Inline strip showing commercial terms + people, gracefully hiding any
+   * field that didn't come back from extraction. Designed to be compact
+   * so the line items table stays the focal point.
+   */
+  function DetailStrip({ record }) {
+    const { Icon } = window.App;
+    const items = [
+      { icon: 'credit-card', label: 'Payment',       value: record.payment_terms },
+      { icon: 'truck',       label: 'Freight',       value: record.freight_terms },
+      { icon: 'navigation',  label: 'Ship via',      value: record.ship_via },
+      { icon: 'anchor',      label: 'F.O.B.',        value: record.fob_terms },
+      { icon: 'user',        label: 'Buyer',         value: record.buyer },
+      { icon: 'mail',        label: 'Buyer email',   value: record.buyer_email },
+      { icon: 'phone',       label: 'Buyer phone',   value: record.buyer_phone },
+      { icon: 'user-check',  label: 'Receiving',     value: record.receiving_contact },
+      { icon: 'phone',       label: 'Receiving ph.', value: record.receiving_contact_phone },
+    ].filter((x) => x.value && String(x.value).trim());
+
+    if (!items.length) return null;
+    return (
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+          gap: 8,
+          padding: '8px 12px',
+          background: 'var(--bg-subtle)',
+          border: '1px solid var(--border)',
+          borderRadius: 6,
+          marginBottom: 12,
+        }}
+      >
+        {items.map((it) => (
+          <div key={it.label} className="flex items-center gap-2" style={{ fontSize: 11.5, color: 'var(--text)', minWidth: 0 }}>
+            <Icon name={it.icon} size={11} style={{ color: 'var(--text-subtle)', flexShrink: 0 }} />
+            <span style={{ color: 'var(--text-muted)', fontWeight: 500, flexShrink: 0 }}>{it.label}:</span>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={it.value}>
+              {it.value}
+            </span>
+          </div>
+        ))}
+      </div>
     );
   }
 
