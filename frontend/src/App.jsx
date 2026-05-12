@@ -488,7 +488,7 @@
       }}>
         <Icon name="alert-triangle" size={15} />
         <strong>Backend offline.</strong>
-        <span>The SQLite API at <code style={{ fontFamily: 'JetBrains Mono', fontSize: 11.5 }}>{(window.App?.backend?.BASE || '127.0.0.1:8503').replace(/^https?:\/\//, '')}</code> isn't responding.</span>
+        <span>The API at <code style={{ fontFamily: 'JetBrains Mono', fontSize: 11.5 }}>{((window.App?.backend?.BASE ?? '127.0.0.1:8503') || window.location.host).replace(/^https?:\/\//, '')}</code> isn't responding.</span>
         <div style={{ flex: 1 }} />
         <Button size="sm" variant="danger" onClick={onRetry}>Retry</Button>
       </div>

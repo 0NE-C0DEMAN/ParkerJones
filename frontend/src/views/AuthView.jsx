@@ -43,7 +43,7 @@
           }
         </div>
         <div className="auth-footnote">
-          Foundry · v0.4 · Internal sales workspace · Backend on <code>{(window.App?.backend?.BASE || 'http://127.0.0.1:8503').replace(/^https?:\/\//, '')}</code>
+          Foundry · v0.4 · Internal sales workspace · Backend on <code>{((window.App?.backend?.BASE ?? 'http://127.0.0.1:8503') || window.location.host).replace(/^https?:\/\//, '')}</code>
         </div>
       </div>
     );

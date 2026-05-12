@@ -185,7 +185,7 @@
         <div className="text-sm text-muted text-center" style={{ marginTop: 12, fontSize: 11 }}>
           Foundry · v0.3 · Backend: <span style={{ color: backendOnline ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>
             {backendOnline ? 'connected' : 'offline'}
-          </span> ({window.App?.backend?.BASE || 'localhost:8503'})
+          </span> ({(window.App?.backend?.BASE ?? 'localhost:8503') || window.location.host})
         </div>
       </div>
     );

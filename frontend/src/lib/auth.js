@@ -36,7 +36,10 @@
   }
 
   async function _request(path, opts = {}) {
-    const BASE = window.App?.backend?.BASE || 'http://127.0.0.1:8503';
+    // `BASE` can legitimately be "" (same-origin) on hosted deploys, so
+    // use ?? (nullish coalescing) — `||` would treat empty string as
+    // missing and fall back to the dev URL.
+    const BASE = window.App?.backend?.BASE ?? 'http://127.0.0.1:8503';
     const res = await fetch(BASE + path, {
       headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
       ...opts,
