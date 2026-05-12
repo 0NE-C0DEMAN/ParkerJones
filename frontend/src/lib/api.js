@@ -188,14 +188,6 @@
     return data.values || [];
   }
 
-  async function syncStatus() {
-    return request('/api/sync/status');
-  }
-
-  async function syncNow() {
-    return request('/api/sync/now', { method: 'POST' });
-  }
-
   async function listTeam() {
     return request('/api/team');
   }
@@ -228,7 +220,5 @@
     getDistinct,
     listTeam,
     setUserActive,
-    syncStatus,
-    syncNow,
   };
 })();

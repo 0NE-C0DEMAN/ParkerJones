@@ -1,14 +1,13 @@
 """
 db.py — Storage dispatcher.
 
-Picks the backend (SQLite or Google Sheets) based on the
-FOUNDRY_DB_BACKEND environment variable or .streamlit/secrets.toml. Backend
-modules expose the same function signatures, so backend.py and auth.py can
-swap stores transparently.
+Picks the backend based on the FOUNDRY_DB_BACKEND env var or
+.streamlit/secrets.toml. Backend modules expose the same function
+signatures so the rest of the app doesn't care which is live.
 
-Choose:
-    FOUNDRY_DB_BACKEND=sqlite   (default — local foundry.db)
-    FOUNDRY_DB_BACKEND=sheets   (requires gcp_service_account in secrets.toml)
+Modes:
+    sqlite (default) — local foundry.db; offline-friendly dev.
+    turso            — cloud libSQL (production / hosted deploys).
 """
 from __future__ import annotations
 
@@ -18,8 +17,7 @@ from pathlib import Path
 
 SECRETS_PATH = Path(__file__).parent / ".streamlit" / "secrets.toml"
 
-
-VALID_BACKENDS = {"sqlite", "sheets", "turso", "hybrid"}
+VALID_BACKENDS = {"sqlite", "turso"}
 
 
 def _resolve_backend() -> str:
@@ -46,15 +44,9 @@ def _resolve_backend() -> str:
 
 BACKEND = _resolve_backend()
 
-if BACKEND == "sheets":
-    print("[db] Using Google Sheets backend.", file=sys.stderr)
-    from db_sheets import *  # noqa: F401,F403
-elif BACKEND == "turso":
+if BACKEND == "turso":
     print("[db] Using Turso (libSQL) backend.", file=sys.stderr)
     from db_turso import *  # noqa: F401,F403
-elif BACKEND == "hybrid":
-    print("[db] Using HYBRID backend (local SQLite + Turso sync).", file=sys.stderr)
-    from db_hybrid import *  # noqa: F401,F403
 else:
     print("[db] Using SQLite backend.", file=sys.stderr)
     from db_sqlite import *  # noqa: F401,F403

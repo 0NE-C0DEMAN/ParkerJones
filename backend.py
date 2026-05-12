@@ -224,23 +224,6 @@ def stats(user: auth.CurrentUser = Depends(auth.current_user)):
     return db.stats()
 
 
-@app.get("/api/sync/status")
-def sync_status(user: auth.CurrentUser = Depends(auth.current_user)):
-    """Current sync state — used by the SyncStatus pill in the topbar.
-    Returns a stub for non-hybrid backends."""
-    if hasattr(db, "sync_status"):
-        return db.sync_status()
-    return {"status": "n/a", "backend": db.BACKEND}
-
-
-@app.post("/api/sync/now")
-def sync_now(user: auth.CurrentUser = Depends(auth.current_user)):
-    """Force an immediate sync cycle (manual refresh button)."""
-    if hasattr(db, "sync_now"):
-        return db.sync_now()
-    return {"status": "n/a", "backend": db.BACKEND}
-
-
 @app.get("/api/pos", response_model=list[PORecordSaved])
 def list_pos(
     query: str = Query(""),

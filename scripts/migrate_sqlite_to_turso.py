@@ -2,9 +2,9 @@
 migrate_sqlite_to_turso.py — Copy local foundry.db rows into the Turso DB
 configured in .streamlit/secrets.toml.
 
-Run:
-    python migrate_sqlite_to_turso.py
-    python migrate_sqlite_to_turso.py --dry-run
+Run from the repo root:
+    python scripts/migrate_sqlite_to_turso.py
+    python scripts/migrate_sqlite_to_turso.py --dry-run
 
 Safe to re-run: skips rows whose `id` already exists.
 """
@@ -12,6 +12,10 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
+
+# Make sibling modules in the repo root importable (db_sqlite, db_turso).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import db_sqlite
 import db_turso

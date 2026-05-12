@@ -5,7 +5,6 @@
   'use strict';
 
   function TopBar({ title, subtitle, actions }) {
-    const { SyncStatus } = window.App;
     return (
       <header className="topbar">
         <div>
@@ -13,7 +12,6 @@
           {subtitle && <div className="topbar-subtitle">{subtitle}</div>}
         </div>
         <div className="topbar-actions">
-          {SyncStatus && <SyncStatus />}
           {actions}
         </div>
       </header>

@@ -51,7 +51,6 @@ FILES_JSX = [
     "src/features/ActivityLog.jsx",
     "src/features/Charts.jsx",
     "src/features/UploadQueue.jsx",
-    "src/features/SyncStatus.jsx",
     "src/features/CommandPalette.jsx",
     "src/features/POHeader.jsx",
     "src/features/AddressBlock.jsx",
