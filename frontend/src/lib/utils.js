@@ -40,6 +40,14 @@
     return `${d.getFullYear()}-${m}-${day}`;
   }
 
+  function formatDateTime(input) {
+    if (!input) return '—';
+    const d = typeof input === 'string' ? new Date(input) : input;
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) +
+      ' ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  }
+
   function relativeTime(input) {
     if (!input) return '';
     const d = typeof input === 'string' ? new Date(input) : input;
@@ -117,6 +125,7 @@
     formatNumber,
     formatDate,
     formatDateInput,
+    formatDateTime,
     relativeTime,
     cn,
     fileExtension,

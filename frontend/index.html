@@ -42,11 +42,11 @@
   <script src="src/lib/api.js"></script>
   <script src="src/lib/pdfParser.js"></script>
   <script src="src/lib/openrouter.js"></script>
-  <script src="src/lib/mockData.js"></script>
+  <script src="src/lib/gemini.js"></script>
   <script src="src/lib/mockApi.js"></script>
-  <script src="src/lib/excel.js"></script>
 
-  <!-- 2. React-using lib (hooks) -->
+  <!-- 2. React-using lib (hooks) + auth -->
+  <script src="src/lib/auth.js"></script>
   <script type="text/babel" data-presets="env,react" src="src/lib/hooks.jsx"></script>
 
   <!-- 3. Components (atoms) -->
@@ -61,12 +61,19 @@
   <script type="text/babel" data-presets="env,react" src="src/components/EmptyState.jsx"></script>
   <script type="text/babel" data-presets="env,react" src="src/components/Dropzone.jsx"></script>
   <script type="text/babel" data-presets="env,react" src="src/components/Segmented.jsx"></script>
+  <script type="text/babel" data-presets="env,react" src="src/components/ErrorBoundary.jsx"></script>
 
   <!-- 4. Layout -->
   <script type="text/babel" data-presets="env,react" src="src/layout/Sidebar.jsx"></script>
   <script type="text/babel" data-presets="env,react" src="src/layout/TopBar.jsx"></script>
 
-  <!-- 5. Features -->
+  <!-- 5. Features — order matters: helpers/atoms first, then composites that use them -->
+  <script type="text/babel" data-presets="env,react" src="src/features/StatusPill.jsx"></script>
+  <script type="text/babel" data-presets="env,react" src="src/features/Autocomplete.jsx"></script>
+  <script type="text/babel" data-presets="env,react" src="src/features/ActivityLog.jsx"></script>
+  <script type="text/babel" data-presets="env,react" src="src/features/Charts.jsx"></script>
+  <script type="text/babel" data-presets="env,react" src="src/features/UploadQueue.jsx"></script>
+  <script type="text/babel" data-presets="env,react" src="src/features/CommandPalette.jsx"></script>
   <script type="text/babel" data-presets="env,react" src="src/features/POHeader.jsx"></script>
   <script type="text/babel" data-presets="env,react" src="src/features/AddressBlock.jsx"></script>
   <script type="text/babel" data-presets="env,react" src="src/features/LineItemsTable.jsx"></script>
@@ -76,10 +83,13 @@
   <script type="text/babel" data-presets="env,react" src="src/features/PdfPreview.jsx"></script>
 
   <!-- 6. Views -->
+  <script type="text/babel" data-presets="env,react" src="src/views/AuthView.jsx"></script>
   <script type="text/babel" data-presets="env,react" src="src/views/UploadView.jsx"></script>
   <script type="text/babel" data-presets="env,react" src="src/views/ReviewView.jsx"></script>
   <script type="text/babel" data-presets="env,react" src="src/views/RepositoryView.jsx"></script>
   <script type="text/babel" data-presets="env,react" src="src/views/SettingsView.jsx"></script>
+  <script type="text/babel" data-presets="env,react" src="src/views/ProfileView.jsx"></script>
+  <script type="text/babel" data-presets="env,react" src="src/views/TeamView.jsx"></script>
 
   <!-- 7. App + boot -->
   <script type="text/babel" data-presets="env,react" src="src/App.jsx"></script>

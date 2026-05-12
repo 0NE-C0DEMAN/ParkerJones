@@ -13,12 +13,12 @@
   'use strict';
   const { useState, useEffect } = React;
   const { formatCurrency, lineItemsTotal, formatDate } = window.App.utils;
-  const {
-    POHeader, AddressBlock, LineItemsTable, ProcessingState, PdfPreview,
-    Icon, Button, Field, Input, Textarea, Card, Badge,
-  } = window.App;
+  // Component lookups are deferred into each function body so they resolve
+  // at render time, regardless of script load order.
+  const _A = () => window.App;
 
   function ReviewView({ pending, onConfirm, onSaveAsNew, onDiscard }) {
+    const { ProcessingState } = _A();
     if (!pending) return null;
 
     if (pending.status === 'extracting') {
@@ -40,6 +40,7 @@
   }
 
   function ReviewForm({ pending, onConfirm, onSaveAsNew, onDiscard }) {
+    const { POHeader, AddressBlock, LineItemsTable, PdfPreview, Icon, Button, Field, Input, Textarea, Card, StatusChooser, Autocomplete } = _A();
     const [data, setData] = useState(pending.data);
     const isEdit = !!pending.isEdit;
     const duplicate = pending.duplicate;
@@ -63,6 +64,7 @@
         <POHeader data={data} filename={pending.filename} />
 
         {duplicate && !isEdit && <DuplicateBanner duplicate={duplicate} />}
+        <ValidationBanner data={data} />
 
         <div className="review-layout">
           <div className="review-form-col">
@@ -88,13 +90,16 @@
                 <Input value={data.revision} onChange={(v) => updateField('revision', v)} placeholder="0" />
               </Field>
               <Field label="Buyer">
-                <Input value={data.buyer} onChange={(v) => updateField('buyer', v)} placeholder="Name" />
+                <Autocomplete field="buyer" value={data.buyer} onChange={(v) => updateField('buyer', v)} placeholder="Name" />
               </Field>
               <Field label="Buyer email">
                 <Input type="email" value={data.buyer_email} onChange={(v) => updateField('buyer_email', v)} placeholder="email@company.com" />
               </Field>
               <Field label="Payment terms">
-                <Input value={data.payment_terms} onChange={(v) => updateField('payment_terms', v)} placeholder="Net 30" />
+                <Autocomplete field="payment_terms" value={data.payment_terms} onChange={(v) => updateField('payment_terms', v)} placeholder="Net 30" />
+              </Field>
+              <Field label="Status" className="col-span-3">
+                <StatusChooser status={data.status || 'received'} onChange={(s) => updateField('status', s)} />
               </Field>
             </div>
           </div>
@@ -199,7 +204,49 @@
     );
   }
 
+  function ValidationBanner({ data }) {
+    const { Icon } = _A();
+    const issues = [];
+    const computed = (data.line_items || []).reduce((s, it) => s + (Number(it.amount) || 0), 0);
+    const reported = Number(data.total) || 0;
+    if (Math.abs(computed - reported) > 0.5 && reported > 0 && computed > 0) {
+      issues.push(
+        `Line item sum (${formatCurrency(computed, data.currency)}) doesn't match the PO total (${formatCurrency(reported, data.currency)}) — verify before adding.`
+      );
+    }
+    if (data.po_number && !/[A-Z0-9\-]/i.test(data.po_number)) {
+      issues.push(`PO number looks malformed.`);
+    }
+    if (!data.customer && !data.supplier) {
+      issues.push('Both customer and supplier are blank — extraction may have failed.');
+    }
+    if (issues.length === 0) return null;
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: 10,
+        padding: '10px 14px',
+        marginBottom: 12,
+        background: 'var(--warning-light)',
+        border: '1px solid rgba(180, 83, 9, 0.25)',
+        borderRadius: 'var(--r-md)',
+        fontSize: 12.5,
+        color: 'var(--warning)',
+      }}>
+        <Icon name="alert-triangle" size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+        <div>
+          <strong>Validation warnings</strong>
+          <ul style={{ margin: '4px 0 0 16px', padding: 0, color: 'var(--text)', fontSize: 12 }}>
+            {issues.map((m, i) => <li key={i} style={{ listStyle: 'disc', marginTop: 2 }}>{m}</li>)}
+          </ul>
+        </div>
+      </div>
+    );
+  }
+
   function DuplicateBanner({ duplicate }) {
+    const { Icon, Badge } = _A();
     return (
       <div style={{
         display: 'flex',

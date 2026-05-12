@@ -13,14 +13,22 @@
 
   async function request(path, opts = {}) {
     const url = BASE + path;
+    const authHeaders = window.App?.auth?.authHeader?.() || {};
     let res;
     try {
       res = await fetch(url, {
-        headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+        headers: { 'Content-Type': 'application/json', ...authHeaders, ...(opts.headers || {}) },
         ...opts,
       });
     } catch (e) {
       throw new Error(`Backend unreachable at ${BASE}. Is the server running?`);
+    }
+    if (res.status === 401) {
+      // Session expired — clear and reload to land on the login screen.
+      window.App?.auth?.clearSession?.();
+      const err = new Error('Session expired — please sign in again.');
+      err.status = 401;
+      throw err;
     }
     if (!res.ok) {
       let msg = `HTTP ${res.status}`;
@@ -117,10 +125,20 @@
     if (!po_id || !file) return null;
     const form = new FormData();
     form.append('file', file, file.name);
+    // Don't set Content-Type — the browser sets it with the multipart boundary.
+    // But we DO need the Authorization header now that backend requires auth.
+    const authHeaders = window.App?.auth?.authHeader?.() || {};
     const res = await fetch(`${BASE}/api/pos/${po_id}/source`, {
       method: 'POST',
+      headers: { ...authHeaders },
       body: form,
     });
+    if (res.status === 401) {
+      window.App?.auth?.clearSession?.();
+      const err = new Error('Session expired — please sign in again.');
+      err.status = 401;
+      throw err;
+    }
     if (!res.ok) {
       let msg = `HTTP ${res.status}`;
       try { msg = (await res.json())?.detail || msg; } catch { /* ignore */ }
@@ -132,6 +150,43 @@
   function getSourceUrl(po_id) {
     if (!po_id) return null;
     return `${BASE}/api/pos/${po_id}/source`;
+  }
+
+  async function updateStatus(po_id, status) {
+    return request(`/api/pos/${po_id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
+  }
+
+  async function bulkDelete(ids) {
+    return request('/api/pos/bulk/delete', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    });
+  }
+
+  async function bulkStatus(ids, status) {
+    return request('/api/pos/bulk/status', {
+      method: 'POST',
+      body: JSON.stringify({ ids, status }),
+    });
+  }
+
+  async function getDistinct(field) {
+    const data = await request(`/api/distinct/${encodeURIComponent(field)}`);
+    return data.values || [];
+  }
+
+  async function listTeam() {
+    return request('/api/team');
+  }
+
+  async function setUserActive(user_id, is_active) {
+    return request('/api/team/active', {
+      method: 'POST',
+      body: JSON.stringify({ user_id, is_active }),
+    });
   }
 
   window.App = window.App || {};
@@ -149,5 +204,11 @@
     downloadLedgerXlsx,
     uploadSource,
     getSourceUrl,
+    updateStatus,
+    bulkDelete,
+    bulkStatus,
+    getDistinct,
+    listTeam,
+    setUserActive,
   };
 })();

@@ -21,23 +21,27 @@
     onStage?.('parsing', 'Reading document');
     const parsed = await window.App.pdfParser.readFile(file);
 
-    // Use the full key list so the client transparently falls back to
-    // backup keys on credit/auth/rate failures.
-    const apiKeys = window.App.config.getApiKeys();
+    // Pick the right provider based on the chosen model, then narrow the
+    // key list to only keys that match that provider (so a Gemini model
+    // doesn't try an OpenRouter key and vice-versa).
     const model = window.App.config.getModel();
+    const provider = window.App.config.providerForModel(model);
+    const apiKeys = window.App.config.keysForProvider(provider);
+    const client = provider === 'google' ? window.App.gemini : window.App.openrouter;
+
+    if (!client) throw new Error(`Provider "${provider}" client not loaded.`);
 
     let raw;
     let method = 'text';
 
     if (window.App.pdfParser.isLikelyScanned(parsed)) {
-      // Scanned PDF — fall back to vision
       onStage?.('extracting', 'Scanned PDF detected — using vision model');
       const { images } = await window.App.pdfParser.renderPagesToImages(file, { maxPages: 5, scale: 1.6 });
-      raw = await window.App.openrouter.extractWithVision(images, { apiKeys, model });
+      raw = await client.extractWithVision(images, { apiKeys, model });
       method = 'vision';
     } else {
-      onStage?.('extracting', 'Extracting fields with AI');
-      raw = await window.App.openrouter.extractWithLLM(parsed.text, { apiKeys, model });
+      onStage?.('extracting', `Extracting fields with ${provider === 'google' ? 'Gemini' : 'Claude/GPT'}`);
+      raw = await client.extractWithLLM(parsed.text, { apiKeys, model });
     }
 
     onStage?.('validating', 'Validating');

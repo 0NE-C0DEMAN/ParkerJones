@@ -1,88 +1,106 @@
 /* ==========================================================================
-   config.js — API key + model config.
+   config.js — Provider/model/key configuration.
 
-   Keys must come from:
-     1. User Settings → localStorage (`foundry.openrouter.apiKey`), or
-     2. Streamlit deployment → `window.STREAMLIT_API_KEY` from `.streamlit/secrets.toml`
-        (never commit real secrets; `secrets.toml` is gitignored).
+   Supports multiple LLM providers, auto-detected from the API key prefix:
+     - "AIzaSy..." → Google Gemini  (recommended for free tier — 1500/day)
+     - "sk-or-..."  → OpenRouter
+     - "sk-..."     → OpenAI direct (not implemented)
 
-   Do not put API keys in this file — it is bundled into the browser.
+   Default keys are tried in order; backup is auto-tried only on credit/auth
+   failures (see openrouter.js / gemini.js _withFallback).
    ========================================================================== */
 (() => {
   'use strict';
 
+  // Default keys are intentionally empty in source — DO NOT COMMIT KEYS HERE.
+  // Real keys come from:
+  //   1. The in-app Settings panel (saved to browser localStorage), OR
+  //   2. .streamlit/secrets.toml under OPENROUTER_API_KEY (injected as
+  //      window.STREAMLIT_API_KEY by app.py), OR
+  //   3. The first run will prompt for a key in Settings.
   const DEFAULT_API_KEYS = [];
-  const DEFAULT_MODEL = 'anthropic/claude-sonnet-4.5';
+  const DEFAULT_API_KEY = '';
 
-  const API_KEY_STORAGE = 'foundry.openrouter.apiKey';
+  // Default model — Gemini 2.5 Flash Lite is the most generous free-tier model.
+  const DEFAULT_MODEL = 'gemini-2.5-flash-lite';
+
+  const API_KEY_STORAGE = 'foundry.openrouter.apiKey';   // legacy name, holds whichever provider's key
   const MODEL_STORAGE = 'foundry.openrouter.model';
 
+  // Models the user can choose from in Settings. Each one declares its
+  // provider so the extractor knows which client to call.
   const AVAILABLE_MODELS = [
-    { id: 'anthropic/claude-sonnet-4.5', label: 'Claude Sonnet 4.5', tag: 'Recommended', tier: 'balanced' },
-    { id: 'anthropic/claude-sonnet-4.6', label: 'Claude Sonnet 4.6', tag: 'Newer', tier: 'balanced' },
-    { id: 'anthropic/claude-opus-4.6', label: 'Claude Opus 4.6', tag: 'Most accurate', tier: 'pro' },
-    { id: 'anthropic/claude-haiku-4.5', label: 'Claude Haiku 4.5', tag: 'Fastest', tier: 'fast' },
-    { id: 'openai/gpt-5.5', label: 'GPT-5.5', tag: 'OpenAI', tier: 'balanced' },
-    { id: 'openai/gpt-5.5-pro', label: 'GPT-5.5 Pro', tag: 'OpenAI · accurate', tier: 'pro' },
+    { id: 'gemini-2.5-flash-lite',         label: 'Gemini 2.5 Flash Lite', tag: 'Recommended · Free 1500/day', provider: 'google' },
+    { id: 'gemini-2.5-flash',              label: 'Gemini 2.5 Flash',      tag: 'Free · Better quality',       provider: 'google' },
+    { id: 'gemini-2.5-pro',                label: 'Gemini 2.5 Pro',        tag: 'Most accurate (paid)',         provider: 'google' },
+    { id: 'anthropic/claude-haiku-4.5',    label: 'Claude Haiku 4.5',      tag: 'Cheap (OpenRouter)',          provider: 'openrouter' },
+    { id: 'anthropic/claude-sonnet-4.5',   label: 'Claude Sonnet 4.5',     tag: 'OpenRouter',                  provider: 'openrouter' },
+    { id: 'anthropic/claude-opus-4.6',     label: 'Claude Opus 4.6',       tag: 'Expensive (OpenRouter)',      provider: 'openrouter' },
   ];
 
-  function getApiKey() {
-    const keys = getApiKeys();
-    return keys[0] || '';
-  }
+  // ----- key + model accessors -----
 
-  /**
-   * Ordered list of keys to try. The OpenRouter client walks this list and
-   * falls back to the next key on credit/auth/rate-limit errors.
-   */
+  function getApiKey() { return getApiKeys()[0]; }
+
+  /** Ordered list of keys to try (user override first, then defaults). */
   function getApiKeys() {
     try {
       const stored = window.localStorage.getItem(API_KEY_STORAGE);
-      if (stored && stored.trim()) return [stored.trim()];
-    } catch {
-      /* localStorage unavailable */
-    }
-    if (window.STREAMLIT_API_KEY && String(window.STREAMLIT_API_KEY).trim()) {
-      return [String(window.STREAMLIT_API_KEY).trim()];
-    }
+      if (stored) return [stored];
+    } catch { /* localStorage unavailable */ }
+    if (window.STREAMLIT_API_KEY) return [window.STREAMLIT_API_KEY];
     return [...DEFAULT_API_KEYS];
   }
 
   function setApiKey(key) {
     try {
-      if (key && key.trim()) {
-        window.localStorage.setItem(API_KEY_STORAGE, key.trim());
-      } else {
-        window.localStorage.removeItem(API_KEY_STORAGE);
-      }
-    } catch (e) {
-      console.warn('Could not persist API key', e);
-    }
+      if (key && key.trim()) window.localStorage.setItem(API_KEY_STORAGE, key.trim());
+      else window.localStorage.removeItem(API_KEY_STORAGE);
+    } catch (e) { console.warn('Could not persist API key', e); }
   }
 
-  /** True when the user has not saved a key in Settings (Streamlit or none). */
   function isUsingDefaultKey() {
     try {
-      return !window.localStorage.getItem(API_KEY_STORAGE);
-    } catch {
-      return true;
-    }
+      const stored = window.localStorage.getItem(API_KEY_STORAGE);
+      return !stored || DEFAULT_API_KEYS.includes(stored);
+    } catch { return true; }
   }
 
   function getModel() {
-    try {
-      return window.localStorage.getItem(MODEL_STORAGE) || DEFAULT_MODEL;
-    } catch {
-      return DEFAULT_MODEL;
-    }
+    try { return window.localStorage.getItem(MODEL_STORAGE) || DEFAULT_MODEL; }
+    catch { return DEFAULT_MODEL; }
   }
 
   function setModel(m) {
-    try {
-      window.localStorage.setItem(MODEL_STORAGE, m);
-    } catch (e) {
-      console.warn('Could not persist model selection', e);
-    }
+    try { window.localStorage.setItem(MODEL_STORAGE, m); }
+    catch (e) { console.warn('Could not persist model selection', e); }
+  }
+
+  // ----- provider detection -----
+
+  /** Detect provider from a key prefix. */
+  function detectProvider(key) {
+    if (!key) return 'openrouter';
+    const k = String(key).trim();
+    if (k.startsWith('AIzaSy')) return 'google';
+    if (k.startsWith('sk-or-')) return 'openrouter';
+    if (k.startsWith('sk-'))    return 'openai';
+    return 'openrouter';
+  }
+
+  /** Provider for a given model id (looks at AVAILABLE_MODELS). */
+  function providerForModel(modelId) {
+    const m = AVAILABLE_MODELS.find((x) => x.id === modelId);
+    return m ? m.provider : (modelId && modelId.startsWith('gemini') ? 'google' : 'openrouter');
+  }
+
+  /** Filter the key list down to ones matching the chosen provider. Falls
+   *  back to all keys if none match (so the user can still get an error
+   *  message rather than "no keys"). */
+  function keysForProvider(provider) {
+    const keys = getApiKeys();
+    const matched = keys.filter((k) => detectProvider(k) === provider);
+    return matched.length ? matched : keys;
   }
 
   window.App = window.App || {};
@@ -93,6 +111,9 @@
     isUsingDefaultKey,
     getModel,
     setModel,
+    detectProvider,
+    providerForModel,
+    keysForProvider,
     AVAILABLE_MODELS,
     DEFAULT_MODEL,
     DEFAULT_API_KEY_COUNT: DEFAULT_API_KEYS.length,

@@ -1,9 +1,14 @@
 """
-db.py — SQLite schema + CRUD operations for Foundry's PO ledger.
+db.py — SQLite schema + CRUD operations for Foundry.
+
+Tables:
+    users       — registered accounts (auth)
+    pos         — purchase orders
+    line_items  — line items per PO (FK)
 
 The DB lives in `foundry.db` next to this file. Schema is created on first
-connection (idempotent). We use stdlib `sqlite3` only — no ORM — to keep
-deployment dead simple.
+connection (idempotent). Stdlib `sqlite3` only — no ORM — to keep deployment
+dead simple.
 """
 from __future__ import annotations
 
@@ -17,6 +22,19 @@ from typing import Any, Iterable
 DB_PATH = Path(__file__).parent / "foundry.db"
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  email TEXT UNIQUE NOT NULL,
+  full_name TEXT,
+  password_hash TEXT NOT NULL,
+  role TEXT DEFAULT 'rep',
+  is_active INTEGER DEFAULT 1,
+  created_at TEXT NOT NULL,
+  last_login_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
 CREATE TABLE IF NOT EXISTS pos (
   id TEXT PRIMARY KEY,
   po_number TEXT NOT NULL,
@@ -35,8 +53,13 @@ CREATE TABLE IF NOT EXISTS pos (
   total REAL,
   filename TEXT,
   notes TEXT,
-  has_source INTEGER DEFAULT 0,        -- 1 if source PDF is stored in files/
-  extraction_method TEXT DEFAULT 'text', -- 'text' | 'vision' (which path was used)
+  status TEXT DEFAULT 'received',  -- received | acknowledged | in_progress | shipped | invoiced | closed
+  has_source INTEGER DEFAULT 0,
+  extraction_method TEXT DEFAULT 'text',
+  created_by_id TEXT,
+  created_by_email TEXT,
+  updated_by_id TEXT,
+  updated_by_email TEXT,
   added_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -63,6 +86,19 @@ CREATE TABLE IF NOT EXISTS line_items (
 CREATE INDEX IF NOT EXISTS idx_line_items_po_id ON line_items(po_id);
 """
 
+# Migrations — additive columns added in later versions. Each tuple is
+# (column_name, DDL_after_TYPE_keyword). ALTER TABLE ADD COLUMN is no-op
+# in catch block if the column already exists.
+MIGRATIONS = [
+    ("has_source", "INTEGER DEFAULT 0"),
+    ("extraction_method", "TEXT DEFAULT 'text'"),
+    ("status", "TEXT DEFAULT 'received'"),
+    ("created_by_id", "TEXT"),
+    ("created_by_email", "TEXT"),
+    ("updated_by_id", "TEXT"),
+    ("updated_by_email", "TEXT"),
+]
+
 
 @contextmanager
 def get_conn():
@@ -80,19 +116,94 @@ def get_conn():
 
 
 def init() -> None:
-    """Create tables/indexes if they don't exist + apply lightweight migrations."""
+    """Create tables/indexes if they don't exist + apply migrations."""
     with get_conn() as conn:
         conn.executescript(SCHEMA)
-        # Add columns added in later versions (no-op if they exist)
-        for col, ddl in [
-            ("has_source", "INTEGER DEFAULT 0"),
-            ("extraction_method", "TEXT DEFAULT 'text'"),
-        ]:
+        # Apply additive column migrations BEFORE creating indexes that
+        # reference those columns.
+        for col, ddl in MIGRATIONS:
             try:
                 conn.execute(f"ALTER TABLE pos ADD COLUMN {col} {ddl}")
             except sqlite3.OperationalError:
-                pass  # already exists
+                pass  # column exists
+        # Indexes that depend on migrated columns
+        for stmt in [
+            "CREATE INDEX IF NOT EXISTS idx_pos_status ON pos(status)",
+            "CREATE INDEX IF NOT EXISTS idx_pos_created_by ON pos(created_by_id)",
+        ]:
+            try:
+                conn.execute(stmt)
+            except sqlite3.OperationalError:
+                pass
 
+
+# =============================================================================
+# Users
+# =============================================================================
+
+def create_user(record: dict) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO users (id, email, full_name, password_hash, role, is_active, created_at, last_login_at)
+            VALUES (?,?,?,?,?,?,?,?)
+            """,
+            (
+                record["id"], record["email"], record.get("full_name") or "",
+                record["password_hash"], record.get("role") or "rep",
+                1 if record.get("is_active", True) else 0,
+                record["created_at"], record.get("last_login_at"),
+            ),
+        )
+
+
+def get_user(user_id: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def find_user_by_email(email: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM users WHERE email = ?", (email.strip().lower(),)).fetchone()
+        return dict(row) if row else None
+
+
+def update_user(user_id: str, full_name: str | None = None) -> dict | None:
+    with get_conn() as conn:
+        if full_name is not None:
+            conn.execute("UPDATE users SET full_name = ? WHERE id = ?", (full_name, user_id))
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def set_user_password(user_id: str, password_hash: str) -> None:
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (password_hash, user_id))
+
+
+def touch_last_login(user_id: str) -> None:
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?",
+                     (datetime.now().isoformat(), user_id))
+
+
+def list_users() -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, email, full_name, role, is_active, created_at, last_login_at FROM users ORDER BY created_at"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def set_user_active(user_id: str, active: bool) -> None:
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET is_active = ? WHERE id = ?", (1 if active else 0, user_id))
+
+
+# =============================================================================
+# POs
+# =============================================================================
 
 def _row_to_po(row: sqlite3.Row, line_items: list[dict]) -> dict:
     d = dict(row)
@@ -108,11 +219,7 @@ def _list_lines(conn: sqlite3.Connection, po_id: str) -> list[dict]:
     return [dict(r) for r in cur.fetchall()]
 
 
-def list_pos(query: str = "", period: str = "all") -> list[dict]:
-    """List POs with optional search query and period filter (all|7d|30d|90d).
-
-    Returns each PO with its `line_items` array embedded.
-    """
+def list_pos(query: str = "", period: str = "all", status: str = "all", created_by_id: str | None = None) -> list[dict]:
     with get_conn() as conn:
         sql = "SELECT * FROM pos"
         params: list[Any] = []
@@ -136,9 +243,17 @@ def list_pos(query: str = "", period: str = "all") -> list[dict]:
                 clauses.append("added_at >= ?")
                 params.append(cutoff)
 
+        if status and status != "all":
+            clauses.append("status = ?")
+            params.append(status)
+
+        if created_by_id:
+            clauses.append("created_by_id = ?")
+            params.append(created_by_id)
+
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
-        sql += " ORDER BY added_at DESC"
+        sql += " ORDER BY updated_at DESC"
 
         rows = conn.execute(sql, params).fetchall()
         return [_row_to_po(r, _list_lines(conn, r["id"])) for r in rows]
@@ -153,7 +268,6 @@ def get_po(po_id: str) -> dict | None:
 
 
 def find_by_po_number(po_number: str) -> dict | None:
-    """Used for duplicate detection during extraction."""
     if not po_number:
         return None
     with get_conn() as conn:
@@ -190,7 +304,7 @@ def _insert_line_items(conn: sqlite3.Connection, po_id: str, items: Iterable[dic
         )
 
 
-def create_po(data: dict) -> dict:
+def create_po(data: dict, *, created_by_id: str | None = None, created_by_email: str | None = None) -> dict:
     po_id = str(uuid.uuid4())
     now = datetime.now().isoformat()
     line_items = data.get("line_items") or []
@@ -200,9 +314,12 @@ def create_po(data: dict) -> dict:
             """
             INSERT INTO pos (id, po_number, po_date, revision, customer, customer_address,
                              supplier, supplier_address, bill_to, ship_to, payment_terms,
-                             buyer, buyer_email, currency, total, filename, notes,
+                             buyer, buyer_email, currency, total, filename, notes, status,
+                             extraction_method,
+                             created_by_id, created_by_email,
+                             updated_by_id, updated_by_email,
                              added_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 po_id,
@@ -222,8 +339,11 @@ def create_po(data: dict) -> dict:
                 float(data.get("total") or 0),
                 str(data.get("filename") or ""),
                 str(data.get("notes") or ""),
-                now,
-                now,
+                str(data.get("status") or "received"),
+                str(data.get("extraction_method") or "text"),
+                created_by_id, created_by_email,
+                created_by_id, created_by_email,
+                now, now,
             ),
         )
         _insert_line_items(conn, po_id, line_items)
@@ -231,7 +351,7 @@ def create_po(data: dict) -> dict:
     return get_po(po_id)
 
 
-def update_po(po_id: str, data: dict) -> dict | None:
+def update_po(po_id: str, data: dict, *, updated_by_id: str | None = None, updated_by_email: str | None = None) -> dict | None:
     now = datetime.now().isoformat()
     line_items = data.get("line_items") or []
 
@@ -244,6 +364,8 @@ def update_po(po_id: str, data: dict) -> dict | None:
             UPDATE pos SET po_number=?, po_date=?, revision=?, customer=?, customer_address=?,
                            supplier=?, supplier_address=?, bill_to=?, ship_to=?, payment_terms=?,
                            buyer=?, buyer_email=?, currency=?, total=?, filename=?, notes=?,
+                           status=?,
+                           updated_by_id=?, updated_by_email=?,
                            updated_at=?
             WHERE id=?
             """,
@@ -264,11 +386,12 @@ def update_po(po_id: str, data: dict) -> dict | None:
                 float(data.get("total") or 0),
                 str(data.get("filename") or ""),
                 str(data.get("notes") or ""),
+                str(data.get("status") or "received"),
+                updated_by_id, updated_by_email,
                 now,
                 po_id,
             ),
         )
-        # Replace the line items wholesale (simpler than reconciling)
         conn.execute("DELETE FROM line_items WHERE po_id = ?", (po_id,))
         _insert_line_items(conn, po_id, line_items)
 
@@ -305,9 +428,13 @@ def stats() -> dict:
         suppliers = conn.execute(
             "SELECT COUNT(DISTINCT supplier) AS c FROM pos WHERE supplier <> ''"
         ).fetchone()
+        active_users = conn.execute(
+            "SELECT COUNT(*) AS c FROM users WHERE is_active = 1"
+        ).fetchone()
         return {
             "po_count": po_row["c"] or 0,
             "total_value": float(po_row["t"] or 0),
             "line_count": line_row["c"] or 0,
             "supplier_count": suppliers["c"] or 0,
+            "active_user_count": active_users["c"] or 0,
         }

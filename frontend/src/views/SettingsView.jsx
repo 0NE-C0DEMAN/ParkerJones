@@ -36,7 +36,9 @@
       setTesting(true);
       setTestResult(null);
       try {
-        await window.App.openrouter.pingLLM({ apiKey: keyInput, model });
+        const provider = window.App.config.providerForModel(model);
+        const client = provider === 'google' ? window.App.gemini : window.App.openrouter;
+        await client.pingLLM({ apiKey: keyInput, model });
         setTestResult('ok');
         pushToast?.({ type: 'success', message: `Connection OK · ${model.split('/').pop()}` });
       } catch (err) {
@@ -51,8 +53,9 @@
     const maskedKey = keyInput ? keyInput.slice(0, 12) + '•'.repeat(Math.max(0, keyInput.length - 16)) + keyInput.slice(-4) : '';
 
     return (
-      <div className="view" style={{ maxWidth: 720 }}>
-        <Card noPadding className="mb-3">
+      <div className="view">
+       <div className="settings-grid">
+        <Card noPadding className="mb-0">
           <CardHeader
             title="OpenRouter API"
             subtitle="Used for the LLM extraction. Stored in your browser only."
@@ -120,7 +123,7 @@
           </div>
         </Card>
 
-        <Card noPadding className="mb-3">
+        <Card noPadding className="mb-0">
           <CardHeader
             title="Workflow"
             subtitle="How extracted POs become Excel rows."
@@ -148,7 +151,7 @@
           </div>
         </Card>
 
-        <Card noPadding className="mb-3">
+        <Card noPadding className="mb-0">
           <CardHeader
             title="Ledger data"
             subtitle="Your local PO history."
@@ -178,8 +181,9 @@
           </div>
         </Card>
 
+       </div>
         <div className="text-sm text-muted text-center" style={{ marginTop: 12, fontSize: 11 }}>
-          Foundry · v0.2 · Backend: <span style={{ color: backendOnline ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>
+          Foundry · v0.3 · Backend: <span style={{ color: backendOnline ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>
             {backendOnline ? 'connected' : 'offline'}
           </span> ({window.App?.backend?.BASE || 'localhost:8503'})
         </div>

@@ -70,7 +70,7 @@ OUTPUT SCHEMA
   "total": 0
 }`;
 
-  async function extractWithLLM(documentText, { apiKey, apiKeys, model, signal, maxTokens = 1500 } = {}) {
+  async function extractWithLLM(documentText, { apiKey, apiKeys, model, signal, maxTokens = 1000 } = {}) {
     if (!documentText || documentText.length < 20) {
       throw new Error('No text could be read from this document. If it\'s a scanned PDF, OCR support is coming via the Streamlit backend.');
     }
@@ -234,7 +234,7 @@ OUTPUT SCHEMA
    * vision-capable model. Used when text extraction fails (scanned PDFs).
    * Same JSON output schema as the text path.
    */
-  async function extractWithVision(pageImages, { apiKey, apiKeys, model, signal, maxTokens = 1500 } = {}) {
+  async function extractWithVision(pageImages, { apiKey, apiKeys, model, signal, maxTokens = 1000 } = {}) {
     if (!pageImages || pageImages.length === 0) {
       throw new Error('No page images supplied for vision extraction.');
     }

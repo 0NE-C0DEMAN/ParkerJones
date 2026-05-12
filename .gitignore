@@ -12,6 +12,9 @@ files/
 # Streamlit secrets — never commit real keys
 .streamlit/secrets.toml
 
+# User invitation list — contains real emails + JWT secret
+users.yaml
+
 # Local / IDE
 .cursor/
 *.log

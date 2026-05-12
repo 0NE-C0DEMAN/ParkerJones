@@ -3,12 +3,12 @@
    ========================================================================== */
 (() => {
   'use strict';
-  const { Field, Input, Textarea, Confidence, Icon } = window.App;
   const { confidenceFor } = window.App.utils;
 
-  function PartyField({ icon, label, value, onChange, addressValue, onAddressChange, addressPlaceholder, confidence }) {
+  function PartyField({ icon, label, value, onChange, addressValue, onAddressChange, addressPlaceholder, confidence, autocompleteField }) {
+    const { Field, Input, Textarea, Confidence, Icon, Autocomplete } = window.App;
     return (
-      <div className="card" style={{ padding: 16 }}>
+      <div className="card" style={{ padding: 14 }}>
         <div className="flex items-center gap-2 mb-3">
           <div className="section-heading-icon"><Icon name={icon} size={12} /></div>
           <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
@@ -16,12 +16,22 @@
           </div>
           {confidence && <Confidence level={confidence} />}
         </div>
-        <Input
-          value={value}
-          onChange={onChange}
-          placeholder={`${label} name`}
-          className="mb-2"
-        />
+        {autocompleteField ? (
+          <Autocomplete
+            field={autocompleteField}
+            value={value}
+            onChange={onChange}
+            placeholder={`${label} name`}
+            className="mb-2"
+          />
+        ) : (
+          <Input
+            value={value}
+            onChange={onChange}
+            placeholder={`${label} name`}
+            className="mb-2"
+          />
+        )}
         <Textarea
           value={addressValue}
           onChange={onAddressChange}
@@ -33,6 +43,7 @@
   }
 
   function AddressBlock({ data, onChange }) {
+    // PartyField handles its own component lookups
     const update = (field) => (v) => onChange({ ...data, [field]: v });
 
     return (
@@ -46,6 +57,7 @@
           onAddressChange={update('customer_address')}
           addressPlaceholder="Customer address"
           confidence={confidenceFor(data, 'customer')}
+          autocompleteField="customer"
         />
         <PartyField
           icon="briefcase"
@@ -56,6 +68,7 @@
           onAddressChange={update('supplier_address')}
           addressPlaceholder="Supplier address"
           confidence={confidenceFor(data, 'supplier')}
+          autocompleteField="supplier"
         />
         <PartyField
           icon="map-pin"

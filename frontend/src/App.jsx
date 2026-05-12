@@ -1,33 +1,87 @@
 /* ==========================================================================
-   App.jsx — Root. Owns view routing, repository state (loaded from FastAPI
-   backend), pending PO under review, edit mode, and toast queue.
+   App.jsx — Root. Auth-gated workspace router.
 
-   Backend status:
-     - Boots: pings /api/health on mount; if down, shows offline banner
-       and falls back gracefully (CRUD just shows error toasts).
-     - All persistence is via window.App.backend (no localStorage for POs).
+   States:
+     - boot:   waiting for /api/auth/me (validates stored token)
+     - auth:   no token or token invalid → AuthView (login/register)
+     - app:    authenticated → workspace (Upload / Repository / Settings / Profile)
    ========================================================================== */
 (() => {
   'use strict';
-  const { useState, useCallback, useEffect, useRef } = React;
-  const { uuid } = window.App.utils;
-  const {
-    Sidebar, TopBar, ToastContainer, Button, Icon, Badge,
-    UploadView, ReviewView, RepositoryView, SettingsView,
-  } = window.App;
+  const { useState, useCallback, useEffect } = React;
   const { useToasts, useKeyboardShortcut } = window.App.hooks;
 
   function App() {
+    // Resolve at render time so any component can be defined later in script order
+    const {
+      Sidebar, TopBar, ToastContainer, Button, Icon,
+      AuthView, UploadView, ReviewView, RepositoryView, SettingsView, ProfileView, TeamView,
+      CommandPalette, ErrorBoundary,
+    } = window.App;
+
+    const [bootState, setBootState] = useState('boot'); // 'boot' | 'auth' | 'app'
+    const [user, setUser] = useState(null);
+
     const [view, setView] = useState('upload');
-    // pending: { filename, status: 'extracting'|'review', stage?, data?, isEdit?, editId?, duplicate? }
     const [pending, setPending] = useState(null);
     const [repository, setRepository] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(false);
     const [backendOnline, setBackendOnline] = useState(true);
+    const [queue, setQueue] = useState([]);            // pending files waiting to be processed
+    const [queueIndex, setQueueIndex] = useState(-1);  // currently-processing index in queue
+    const [paletteOpen, setPaletteOpen] = useState(false);
     const { toasts, push, dismiss } = useToasts();
-    const refreshTimer = useRef(null);
 
-    // ---- backend bootstrap ----
+    // ---- bootstrap: backend health + session check ----
+    useEffect(() => {
+      let mounted = true;
+      (async () => {
+        // Backend health (with retries — auto-spawn can take 1-2s)
+        let online = false;
+        for (let i = 0; i < 5; i++) {
+          online = await window.App.backend.checkHealth();
+          if (online || !mounted) break;
+          await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+        }
+        if (!mounted) return;
+        setBackendOnline(online);
+        if (!online) {
+          setBootState('auth'); // show auth screen with offline note
+          return;
+        }
+
+        // Session check — fetch /me with stored token
+        const me = await window.App.auth.fetchMe();
+        if (!mounted) return;
+        if (me) {
+          setUser(me);
+          setBootState('app');
+        } else {
+          setBootState('auth');
+        }
+      })();
+      return () => { mounted = false; };
+    }, []);
+
+    // ---- when authenticated, load the ledger ----
+    useEffect(() => {
+      if (bootState !== 'app') return;
+      let mounted = true;
+      (async () => {
+        setLoading(true);
+        try {
+          const list = await window.App.backend.listPOs();
+          if (mounted) setRepository(list);
+        } catch (err) {
+          if (err.status === 401) return; // session expired — handled by api.js
+          if (mounted) push({ type: 'error', message: `Failed to load ledger: ${err.message}` });
+        } finally {
+          if (mounted) setLoading(false);
+        }
+      })();
+      return () => { mounted = false; };
+    }, [bootState, push]);
+
     const refreshRepository = useCallback(async () => {
       try {
         const list = await window.App.backend.listPOs();
@@ -40,83 +94,41 @@
       }
     }, []);
 
-    useEffect(() => {
-      let mounted = true;
-      (async () => {
-        // Retry health check — auto-spawned backend can take 1-2s to come up
-        let ok = false;
-        for (let attempt = 0; attempt < 5; attempt++) {
-          ok = await window.App.backend.checkHealth();
-          if (ok || !mounted) break;
-          await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
-        }
-        if (!mounted) return;
-        setBackendOnline(ok);
-        if (!ok) {
-          push({
-            type: 'error',
-            message: 'Backend offline. Restart with start_streamlit.bat.',
-            duration: 6000,
-          });
-          setLoading(false);
-          return;
-        }
-        try {
-          await refreshRepository();
-        } catch (err) {
-          push({ type: 'error', message: `Failed to load ledger: ${err.message}` });
-        } finally {
-          if (mounted) setLoading(false);
-        }
-      })();
-      return () => { mounted = false; };
-    }, [push, refreshRepository]);
-
     // ---- shortcuts ----
     useKeyboardShortcut('Escape', () => {
-      if (pending) {
+      if (paletteOpen) return; // palette handles its own ESC
+      if (pending && bootState === 'app') {
         setPending(null);
-        setView(view === 'review' ? 'upload' : view);
+        if (view === 'review') setView('upload');
       }
-    }, [pending, view]);
+    }, [pending, view, bootState, paletteOpen]);
 
-    // ---- file extraction flow ----
-    const handleFiles = useCallback(async (files) => {
-      if (!files || files.length === 0) return;
-      const file = files[0];
-      if (files.length > 1) {
-        push({
-          type: 'info',
-          message: `Processing "${file.name}" — ${files.length - 1} more queued (one at a time for now).`,
-        });
-      }
+    // Cmd+K / Ctrl+K opens the command palette (only when authenticated)
+    useEffect(() => {
+      if (bootState !== 'app') return;
+      const onKey = (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+          e.preventDefault();
+          setPaletteOpen((v) => !v);
+        }
+      };
+      window.addEventListener('keydown', onKey);
+      return () => window.removeEventListener('keydown', onKey);
+    }, [bootState]);
 
-      setPending({
-        filename: file.name,
-        fileSize: file.size,
-        file,                          // keep the File object so PdfPreview can blob-URL it
-        status: 'extracting',
-        stage: 'parsing',
-      });
+    // ---- file extraction ----
+    const extractOne = useCallback(async (file) => {
+      setPending({ filename: file.name, fileSize: file.size, file, status: 'extracting', stage: 'parsing' });
       setView('review');
-
       try {
         const data = await window.App.api.extractPO(file, {
           onStage: (stage) => setPending((curr) => curr ? { ...curr, stage } : curr),
         });
-
-        // Duplicate detection
         let duplicate = null;
         if (data.po_number && backendOnline) {
           duplicate = await window.App.backend.findByPONumber(data.po_number);
         }
-
-        setPending((curr) => curr ? {
-          ...curr,
-          status: 'review',
-          data,
-          duplicate,
-        } : curr);
+        setPending((curr) => curr ? { ...curr, status: 'review', data, duplicate } : curr);
       } catch (err) {
         console.error('Extraction failed', err);
         push({ type: 'error', message: err.message || 'Extraction failed.' });
@@ -125,77 +137,115 @@
       }
     }, [push, backendOnline]);
 
+    const handleFiles = useCallback(async (files) => {
+      if (!files || files.length === 0) return;
+      // Drop them all into the queue. The first one processes immediately;
+      // subsequent ones are picked up after the current PO is confirmed/discarded.
+      setQueue(files);
+      setQueueIndex(0);
+      if (files.length > 1) {
+        push({ type: 'info', message: `Processing ${files.length} files — review each one as it's ready.` });
+      }
+      await extractOne(files[0]);
+    }, [push, extractOne]);
+
+    // After confirm/discard, advance to next file in queue if any.
+    const advanceQueue = useCallback(async () => {
+      if (queue.length === 0) return;
+      const nextIdx = queueIndex + 1;
+      if (nextIdx >= queue.length) {
+        // Done with this batch
+        setQueue([]);
+        setQueueIndex(-1);
+        return;
+      }
+      setQueueIndex(nextIdx);
+      await extractOne(queue[nextIdx]);
+    }, [queue, queueIndex, extractOne]);
+
+    const clearQueue = useCallback(() => {
+      setQueue([]);
+      setQueueIndex(-1);
+      push({ type: 'info', message: 'Queue cleared.' });
+    }, [push]);
+
+    const removeFromQueue = useCallback((idx) => {
+      setQueue((curr) => curr.filter((_, i) => i !== idx));
+    }, []);
+
     // ---- save / update ----
     const handleConfirm = useCallback(async (data) => {
       try {
         let saved;
         const wasEdit = pending?.isEdit && pending.editId;
         if (wasEdit) {
-          saved = await window.App.backend.updatePO(pending.editId, {
-            ...data,
-            filename: pending.filename || data.filename || '',
-          });
+          saved = await window.App.backend.updatePO(pending.editId, { ...data, filename: pending.filename || data.filename || '' });
           push({ type: 'success', message: `${saved.po_number} updated` });
         } else if (pending?.duplicate) {
-          saved = await window.App.backend.updatePO(pending.duplicate.id, {
-            ...data,
-            filename: pending.filename || '',
-          });
+          saved = await window.App.backend.updatePO(pending.duplicate.id, { ...data, filename: pending.filename || '' });
           push({ type: 'success', message: `${saved.po_number} replaced existing PO` });
         } else {
-          saved = await window.App.backend.createPO({
-            ...data,
-            filename: pending?.filename || '',
-          });
+          saved = await window.App.backend.createPO({ ...data, filename: pending?.filename || '' });
           push({ type: 'success', message: `${saved.po_number} added to ledger` });
         }
-
-        // Upload the source file (only available on the create/replace path,
-        // not when editing an already-saved PO without a fresh upload).
         if (pending?.file && saved?.id) {
-          try {
-            await window.App.backend.uploadSource(saved.id, pending.file);
-          } catch (err) {
+          try { await window.App.backend.uploadSource(saved.id, pending.file); }
+          catch (err) {
             console.warn('Source file upload failed:', err);
             push({ type: 'info', message: 'PO saved, but source file upload failed.' });
           }
         }
-
         await refreshRepository();
         setPending(null);
-        setView('repository');
+        // If there's another file in the queue, jump to upload view briefly
+        // (so the queue progress is visible) and process it.
+        if (queue.length > 0 && queueIndex < queue.length - 1) {
+          setView('upload');
+          setTimeout(() => advanceQueue(), 200);
+        } else {
+          setView('repository');
+          if (queue.length > 0) { setQueue([]); setQueueIndex(-1); }
+        }
       } catch (err) {
         push({ type: 'error', message: `Save failed: ${err.message}` });
       }
-    }, [pending, refreshRepository, push]);
+    }, [pending, queue, queueIndex, advanceQueue, refreshRepository, push]);
 
     const handleSaveAsNew = useCallback(async (data) => {
-      // Forces creation as a new record even when a duplicate was detected.
       try {
-        const saved = await window.App.backend.createPO({
-          ...data,
-          filename: pending?.filename || '',
-        });
+        const saved = await window.App.backend.createPO({ ...data, filename: pending?.filename || '' });
         if (pending?.file && saved?.id) {
           try { await window.App.backend.uploadSource(saved.id, pending.file); }
           catch (err) { console.warn('Source upload failed:', err); }
         }
-        push({ type: 'success', message: `${saved.po_number} added (kept existing copy too)` });
+        push({ type: 'success', message: `${saved.po_number} added (kept existing too)` });
         await refreshRepository();
         setPending(null);
-        setView('repository');
+        if (queue.length > 0 && queueIndex < queue.length - 1) {
+          setView('upload');
+          setTimeout(() => advanceQueue(), 200);
+        } else {
+          setView('repository');
+          if (queue.length > 0) { setQueue([]); setQueueIndex(-1); }
+        }
       } catch (err) {
         push({ type: 'error', message: `Save failed: ${err.message}` });
       }
-    }, [pending, refreshRepository, push]);
+    }, [pending, queue, queueIndex, advanceQueue, refreshRepository, push]);
 
     const handleDiscard = useCallback(() => {
       setPending(null);
-      setView('upload');
+      // If queued, advance to next; else go back to upload
+      if (queue.length > 0 && queueIndex < queue.length - 1) {
+        setView('upload');
+        setTimeout(() => advanceQueue(), 200);
+      } else {
+        setView('upload');
+        if (queue.length > 0) { setQueue([]); setQueueIndex(-1); }
+      }
       push({ type: 'info', message: 'Discarded.' });
-    }, [push]);
+    }, [queue, queueIndex, advanceQueue, push]);
 
-    // ---- repository actions ----
     const handleEdit = useCallback((id) => {
       const record = repository.find((r) => r.id === id);
       if (!record) return;
@@ -218,6 +268,38 @@
         push({ type: 'info', message: 'PO removed from ledger.' });
       } catch (err) {
         push({ type: 'error', message: `Delete failed: ${err.message}` });
+      }
+    }, [refreshRepository, push]);
+
+    const handleStatusChange = useCallback(async (id, status) => {
+      try {
+        await window.App.backend.updateStatus(id, status);
+        await refreshRepository();
+        const label = window.App.statusInfo(status).label;
+        push({ type: 'success', message: `Marked as ${label}.` });
+      } catch (err) {
+        push({ type: 'error', message: `Status update failed: ${err.message}` });
+      }
+    }, [refreshRepository, push]);
+
+    const handleBulkDelete = useCallback(async (ids) => {
+      try {
+        const r = await window.App.backend.bulkDelete(ids);
+        await refreshRepository();
+        push({ type: 'info', message: `Deleted ${r.deleted} PO${r.deleted === 1 ? '' : 's'}.` });
+      } catch (err) {
+        push({ type: 'error', message: `Bulk delete failed: ${err.message}` });
+      }
+    }, [refreshRepository, push]);
+
+    const handleBulkStatus = useCallback(async (ids, status) => {
+      try {
+        const r = await window.App.backend.bulkStatus(ids, status);
+        await refreshRepository();
+        const label = window.App.statusInfo(status).label;
+        push({ type: 'success', message: `Marked ${r.updated} PO${r.updated === 1 ? '' : 's'} as ${label}.` });
+      } catch (err) {
+        push({ type: 'error', message: `Bulk update failed: ${err.message}` });
       }
     }, [refreshRepository, push]);
 
@@ -248,25 +330,67 @@
       setView(next);
     }, [pending]);
 
+    // ---- auth callbacks ----
+    const handleAuthenticated = useCallback((u) => {
+      setUser(u);
+      setBootState('app');
+      setView('upload');
+      push({ type: 'success', message: `Welcome, ${u.full_name || u.email}` });
+    }, [push]);
+
+    const handleSignOut = useCallback(async () => {
+      await window.App.auth.logout();
+      setUser(null);
+      setRepository([]);
+      setPending(null);
+      setView('upload');
+      setBootState('auth');
+    }, []);
+
+    const handleUserUpdated = useCallback((u) => setUser(u), []);
+
+    // ---- render: boot ----
+    if (bootState === 'boot') {
+      return (
+        <div className="auth-shell">
+          <div style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span className="spinner" style={{ color: 'var(--accent)' }} />
+            <span style={{ fontSize: 13 }}>Loading Foundry...</span>
+          </div>
+        </div>
+      );
+    }
+
+    // ---- render: auth ----
+    if (bootState === 'auth') {
+      return (
+        <>
+          <AuthView onAuthenticated={handleAuthenticated} />
+          <ToastContainer toasts={toasts} onDismiss={dismiss} />
+        </>
+      );
+    }
+
+    // ---- render: app ----
     const titleFor = view === 'upload' ? 'Upload'
       : view === 'review' ? (pending?.isEdit ? 'Edit PO' : 'Review extraction')
       : view === 'repository' ? 'Ledger'
+      : view === 'profile' ? 'Profile'
+      : view === 'team' ? 'Team'
       : 'Settings';
     const subtitleFor = {
       upload: 'Drop POs to extract data with AI',
       review: pending?.filename || '',
       repository: `${repository.length} ${repository.length === 1 ? 'record' : 'records'} in database`,
+      profile: 'Your account & preferences',
+      team: 'Manage members and invitations',
       settings: 'Workspace preferences',
     }[view];
 
     const topbarActions = view === 'repository' && repository.length > 0 ? (
       <>
-        <Button variant="ghost" iconLeft="upload" onClick={() => handleNavigate('upload')}>
-          Upload PO
-        </Button>
-        <Button variant="primary" iconLeft="download" onClick={handleDownload}>
-          Export Excel
-        </Button>
+        <Button variant="ghost" iconLeft="upload" onClick={() => handleNavigate('upload')}>Upload PO</Button>
+        <Button variant="primary" iconLeft="download" onClick={handleDownload}>Export Excel</Button>
       </>
     ) : view === 'upload' && repository.length > 0 ? (
       <Button variant="secondary" iconLeft="rows" onClick={() => handleNavigate('repository')}>
@@ -281,6 +405,8 @@
           onNavigate={handleNavigate}
           repositoryCount={repository.length}
           pendingCount={pending ? 1 : 0}
+          user={user}
+          onSignOut={handleSignOut}
         />
         <main className="main">
           <TopBar title={titleFor} subtitle={subtitleFor} actions={topbarActions} />
@@ -293,21 +419,20 @@
 
           <div className="content">
             {loading ? <LoadingState /> : (
-              <>
+              <ErrorBoundary key={view}>
                 {view === 'upload' && (
                   <UploadView
                     records={repository}
                     onFiles={handleFiles}
                     onView={() => handleNavigate('repository')}
+                    queue={queue}
+                    queueCurrent={queueIndex}
+                    onClearQueue={clearQueue}
+                    onRemoveFromQueue={removeFromQueue}
                   />
                 )}
                 {view === 'review' && (
-                  <ReviewView
-                    pending={pending}
-                    onConfirm={handleConfirm}
-                    onSaveAsNew={handleSaveAsNew}
-                    onDiscard={handleDiscard}
-                  />
+                  <ReviewView pending={pending} onConfirm={handleConfirm} onSaveAsNew={handleSaveAsNew} onDiscard={handleDiscard} />
                 )}
                 {view === 'repository' && (
                   <RepositoryView
@@ -315,26 +440,41 @@
                     onDelete={handleDelete}
                     onEdit={handleEdit}
                     onDownload={handleDownload}
+                    onStatusChange={handleStatusChange}
+                    onBulkDelete={handleBulkDelete}
+                    onBulkStatus={handleBulkStatus}
+                    currentUser={user}
                   />
+                )}
+                {view === 'profile' && (
+                  <ProfileView user={user} onUserUpdated={handleUserUpdated} pushToast={push} />
+                )}
+                {view === 'team' && user?.role === 'admin' && (
+                  <TeamView pushToast={push} currentUser={user} />
                 )}
                 {view === 'settings' && (
-                  <SettingsView
-                    recordCount={repository.length}
-                    onClearLedger={handleClearLedger}
-                    pushToast={push}
-                    backendOnline={backendOnline}
-                  />
+                  <SettingsView recordCount={repository.length} onClearLedger={handleClearLedger} pushToast={push} backendOnline={backendOnline} />
                 )}
-              </>
+              </ErrorBoundary>
             )}
           </div>
         </main>
         <ToastContainer toasts={toasts} onDismiss={dismiss} />
+        <CommandPalette
+          open={paletteOpen}
+          onClose={() => setPaletteOpen(false)}
+          records={repository}
+          navigate={handleNavigate}
+          onSignOut={handleSignOut}
+          onDownloadXlsx={handleDownload}
+          user={user}
+        />
       </div>
     );
   }
 
   function BackendOfflineBanner({ onRetry }) {
+    const { Icon, Button } = window.App;
     return (
       <div style={{
         background: 'var(--danger-light)',
@@ -348,7 +488,7 @@
       }}>
         <Icon name="alert-triangle" size={15} />
         <strong>Backend offline.</strong>
-        <span>The SQLite API at <code style={{ fontFamily: 'JetBrains Mono', fontSize: 11.5 }}>{(window.App?.backend?.BASE || '127.0.0.1:8503').replace(/^https?:\/\//, '')}</code> isn't responding. Restart with <code>start_streamlit.bat</code> or <code>uvicorn backend:app --port 8503</code>.</span>
+        <span>The SQLite API at <code style={{ fontFamily: 'JetBrains Mono', fontSize: 11.5 }}>{(window.App?.backend?.BASE || '127.0.0.1:8503').replace(/^https?:\/\//, '')}</code> isn't responding.</span>
         <div style={{ flex: 1 }} />
         <Button size="sm" variant="danger" onClick={onRetry}>Retry</Button>
       </div>
