@@ -183,12 +183,192 @@
           </div>
         </Card>
 
+        {isAdmin && <AdminCard pushToast={pushToast} backendOnline={backendOnline} />}
+
        </div>
         <div className="text-sm text-muted text-center" style={{ marginTop: 12, fontSize: 11 }}>
           Foundry · v0.4 ·{' '}
           <span style={{ color: backendOnline ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>
             {backendOnline ? 'Connected' : 'Offline'}
           </span>
+        </div>
+      </div>
+    );
+  }
+
+  // --------------------------------------------------------------------
+  // Admin-only card: system status + LLM key rotation
+  // --------------------------------------------------------------------
+  function AdminCard({ pushToast, backendOnline }) {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [newKey, setNewKey] = useState('');
+    const [busy, setBusy] = useState(false);
+
+    const refresh = async () => {
+      setLoading(true);
+      try {
+        setData(await window.App.backend.getAdminConfig());
+      } catch (err) {
+        pushToast?.({ type: 'error', message: err.message || 'Admin config load failed.' });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    useEffect(() => { refresh(); }, []);
+
+    const save = async () => {
+      const v = newKey.trim();
+      if (!v) return;
+      setBusy(true);
+      try {
+        const fresh = await window.App.backend.setAdminConfig({ llm_api_key: v });
+        setData(fresh);
+        setNewKey('');
+        pushToast?.({
+          type: 'success',
+          message: 'LLM key saved. Users get the new key on their next page reload.',
+        });
+      } catch (err) {
+        pushToast?.({ type: 'error', message: err.message || 'Save failed.' });
+      } finally {
+        setBusy(false);
+      }
+    };
+
+    const clearKey = async () => {
+      if (!window.confirm('Clear the DB-stored LLM key and fall back to the Space secret?')) return;
+      setBusy(true);
+      try {
+        const fresh = await window.App.backend.clearAdminLlmKey();
+        setData(fresh);
+        pushToast?.({ type: 'success', message: 'Reverted to Space-secret fallback.' });
+      } catch (err) {
+        pushToast?.({ type: 'error', message: err.message || 'Clear failed.' });
+      } finally {
+        setBusy(false);
+      }
+    };
+
+    const stats = data?.stats || {};
+    const source = data?.llm_api_key_source || 'none';
+    const sourceTone = source === 'db' ? 'accent' : source === 'env' ? 'success' : 'warning';
+    const sourceLabel =
+      source === 'db' ? 'In-app (DB)' :
+      source === 'env' ? 'Space secret (env)' :
+      'Not configured';
+
+    return (
+      <Card noPadding className="mb-0">
+        <CardHeader
+          title="Foundry Admin"
+          subtitle="System status + app-wide settings (admins only)."
+          icon={<Icon name="shield" size={12} />}
+          actions={<Button variant="ghost" size="sm" iconOnly="rotate-cw" onClick={refresh} title="Refresh" />}
+        />
+
+        {loading && !data ? (
+          <div className="settings-section" style={{ display: 'flex', justifyContent: 'center', padding: 24 }}>
+            <span className="spinner" />
+          </div>
+        ) : (
+          <>
+            {/* System status */}
+            <div className="settings-section">
+              <div className="settings-label" style={{ marginBottom: 8 }}>System status</div>
+              <div className="grid-2" style={{ gap: 8 }}>
+                <StatTile label="Backend" value={backendOnline ? 'Connected' : 'Offline'}
+                          tone={backendOnline ? 'success' : 'danger'} />
+                <StatTile label="Host" value={window.location.host} mono />
+                <StatTile label="POs" value={stats.po_count ?? '—'} />
+                <StatTile label="Line items" value={stats.line_count ?? '—'} />
+                <StatTile label="Active users" value={stats.active_user_count ?? '—'} />
+                <StatTile label="Suppliers" value={stats.supplier_count ?? '—'} />
+              </div>
+            </div>
+
+            {/* LLM key rotation */}
+            <div className="settings-section" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+              <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
+                <div>
+                  <div className="settings-label">Shared LLM key</div>
+                  <div className="settings-help">
+                    Used as the default for everyone in the workspace. Per-user overrides above take precedence in the browser.
+                  </div>
+                </div>
+                <Badge tone={sourceTone} dot>{sourceLabel}</Badge>
+              </div>
+
+              <div className="flex items-center gap-2" style={{ marginTop: 8 }}>
+                <code style={{
+                  flex: 1,
+                  fontFamily: 'JetBrains Mono', fontSize: 12,
+                  padding: '8px 10px',
+                  background: 'var(--bg-elevated)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 6,
+                  color: data?.llm_api_key_masked ? 'var(--text)' : 'var(--text-muted)',
+                }}>
+                  {data?.llm_api_key_masked || 'No key configured'}
+                </code>
+                {source === 'db' && (
+                  <Button variant="ghost" size="sm" onClick={clearKey} disabled={busy} title="Drop DB override and use the Space secret instead">
+                    Use env var
+                  </Button>
+                )}
+              </div>
+
+              <Field label={source === 'db' ? 'Replace key' : 'Set a new key (overrides the Space secret)'} style={{ marginTop: 12 }}>
+                <div className="flex gap-2 items-center">
+                  <div className="input-with-icon" style={{ flex: 1 }}>
+                    <span className="input-icon"><Icon name="key" size={13} /></span>
+                    <Input
+                      type="password"
+                      value={newKey}
+                      onChange={setNewKey}
+                      placeholder="AIza…  or  sk-or-v1-…"
+                      style={{ fontFamily: 'JetBrains Mono', fontSize: 12 }}
+                    />
+                  </div>
+                  <Button variant="primary" size="sm" iconLeft="check" onClick={save} loading={busy} disabled={!newKey.trim() || busy}>
+                    Save
+                  </Button>
+                </div>
+                <span className="text-sm text-muted mt-2" style={{ fontSize: 11.5 }}>
+                  Stored in the cloud database. Takes effect for each user on their next page load.
+                </span>
+              </Field>
+            </div>
+          </>
+        )}
+      </Card>
+    );
+  }
+
+  function StatTile({ label, value, tone, mono }) {
+    return (
+      <div
+        style={{
+          padding: '10px 12px',
+          background: 'var(--bg-subtle)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: 6,
+        }}
+      >
+        <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-subtle)', fontWeight: 500 }}>
+          {label}
+        </div>
+        <div
+          style={{
+            fontSize: mono ? 12 : 16,
+            fontFamily: mono ? 'JetBrains Mono' : 'inherit',
+            fontWeight: 600,
+            marginTop: 2,
+            color: tone === 'success' ? 'var(--success)' : tone === 'danger' ? 'var(--danger)' : 'var(--text)',
+          }}
+        >
+          {value}
         </div>
       </div>
     );

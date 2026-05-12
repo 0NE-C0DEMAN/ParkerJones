@@ -92,6 +92,16 @@ CREATE TABLE IF NOT EXISTS line_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_line_items_po_id ON line_items(po_id);
+
+-- Generic key/value table for runtime admin-managed settings.
+-- Currently used for: llm_api_key (admin can rotate without touching HF
+-- Space secrets). Pattern accommodates future toggles without schema churn.
+CREATE TABLE IF NOT EXISTS app_config (
+  key           TEXT PRIMARY KEY,
+  value         TEXT,
+  updated_at    TEXT,
+  updated_by_id TEXT
+);
 """
 
 # Migrations — additive columns added in later versions. Each tuple is
@@ -479,3 +489,40 @@ def stats() -> dict:
             "supplier_count": suppliers["c"] or 0,
             "active_user_count": active_users["c"] or 0,
         }
+
+
+# =============================================================================
+# App config (admin-managed key/value)
+# =============================================================================
+
+def get_config(key: str) -> str | None:
+    """Return the stored value for `key`, or None if not set (or empty)."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT value FROM app_config WHERE key = ?", (key,)).fetchone()
+    if not row:
+        return None
+    val = row["value"]
+    return val if val else None
+
+
+def set_config(key: str, value: str | None, updated_by_id: str | None = None) -> None:
+    """Upsert a config value. Pass value=None to clear (we delete the row so
+    callers can distinguish unset from empty-string)."""
+    now = datetime.now().isoformat()
+    with get_conn() as conn:
+        if value is None or value == "":
+            conn.execute("DELETE FROM app_config WHERE key = ?", (key,))
+        else:
+            conn.execute(
+                """INSERT INTO app_config (key, value, updated_at, updated_by_id)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(key) DO UPDATE SET
+                     value = excluded.value,
+                     updated_at = excluded.updated_at,
+                     updated_by_id = excluded.updated_by_id""",
+                (key, value, now, updated_by_id),
+            )
+
+
+def delete_config(key: str) -> None:
+    set_config(key, None)

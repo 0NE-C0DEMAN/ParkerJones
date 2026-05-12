@@ -219,6 +219,25 @@
     });
   }
 
+  /** Admin: snapshot of app-wide config (LLM key status + system stats). */
+  async function getAdminConfig() {
+    return request('/api/admin/config');
+  }
+
+  /** Admin: set the DB-stored LLM key. Pass empty string to clear and fall
+   *  back to the env-var Space secret. */
+  async function setAdminConfig({ llm_api_key }) {
+    return request('/api/admin/config', {
+      method: 'PUT',
+      body: JSON.stringify({ llm_api_key }),
+    });
+  }
+
+  /** Admin: clear the DB-stored LLM key (env-var fallback resumes). */
+  async function clearAdminLlmKey() {
+    return request('/api/admin/config/llm-api-key', { method: 'DELETE' });
+  }
+
   window.App = window.App || {};
   window.App.backend = {
     BASE,
@@ -242,5 +261,8 @@
     setUserActive,
     adminCreateUser,
     adminResetPassword,
+    getAdminConfig,
+    setAdminConfig,
+    clearAdminLlmKey,
   };
 })();

@@ -142,16 +142,30 @@ def health():
 # In Streamlit dev mode, Streamlit serves the HTML inside a components.html
 # iframe instead and this endpoint is unused.
 # ---------------------------------------------------------------------------
+def _effective_llm_api_key() -> tuple[str, str]:
+    """Resolve the LLM API key the frontend should use.
+
+    Order of preference:
+        1. Admin-set DB value (rotatable from the in-app Admin card)
+        2. OPENROUTER_API_KEY env var (HF Space secret)
+        3. GEMINI_API_KEY env var
+        4. empty string (LLM features disabled)
+
+    Returns (key, source) where source is one of: "db" | "env" | "none".
+    """
+    db_key = db.get_config("llm_api_key")
+    if db_key:
+        return db_key, "db"
+    env_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("GEMINI_API_KEY") or ""
+    if env_key:
+        return env_key, "env"
+    return "", "none"
+
+
 @app.get("/", response_class=HTMLResponse)
 def index():
-    # API key for the frontend's LLM calls — read from env (HF Spaces secret).
-    # Falls back to OPENROUTER_API_KEY, then GEMINI_API_KEY, then empty.
-    api_key = (
-        os.environ.get("OPENROUTER_API_KEY")
-        or os.environ.get("GEMINI_API_KEY")
-        or ""
-    )
-    return frontend_html.build_app_html(api_key=api_key)
+    key, _source = _effective_llm_api_key()
+    return frontend_html.build_app_html(api_key=key)
 
 
 # ============================================================================
@@ -373,6 +387,61 @@ def admin_create_user(
         # otherwise). If the admin supplied one, they already know it.
         "temporary_password": password if generated else None,
     }
+
+
+# ============================================================================
+# Admin: app-wide config (LLM key rotation + system status)
+# ============================================================================
+
+def _mask_secret(s: str) -> str:
+    if not s:
+        return ""
+    if len(s) <= 8:
+        return "•" * len(s)
+    return f"{s[:4]}{'•' * 6}{s[-4:]}"
+
+
+def _config_snapshot() -> dict:
+    key, source = _effective_llm_api_key()
+    stats = db.stats()
+    return {
+        "llm_api_key_set": bool(key),
+        "llm_api_key_source": source,          # "db" | "env" | "none"
+        "llm_api_key_masked": _mask_secret(key),
+        "stats": stats,
+    }
+
+
+class AdminConfigUpdate(BaseModel):
+    # Set llm_api_key to a string to store an admin override; pass an empty
+    # string or null and the DELETE endpoint clears it instead.
+    llm_api_key: Optional[str] = Field(default=None, max_length=400)
+
+
+@app.get("/api/admin/config")
+def get_admin_config(user: auth.CurrentUser = Depends(auth.require_admin)):
+    return _config_snapshot()
+
+
+@app.put("/api/admin/config")
+def set_admin_config(
+    payload: AdminConfigUpdate,
+    user: auth.CurrentUser = Depends(auth.require_admin),
+):
+    if payload.llm_api_key is not None:
+        val = payload.llm_api_key.strip()
+        if val:
+            db.set_config("llm_api_key", val, user.id)
+        else:
+            db.delete_config("llm_api_key")
+    return _config_snapshot()
+
+
+@app.delete("/api/admin/config/llm-api-key")
+def clear_admin_llm_key(user: auth.CurrentUser = Depends(auth.require_admin)):
+    """Drop the DB-stored LLM key and fall back to the Space-secret env var."""
+    db.delete_config("llm_api_key")
+    return _config_snapshot()
 
 
 @app.post("/api/team/users/{user_id}/reset-password")
