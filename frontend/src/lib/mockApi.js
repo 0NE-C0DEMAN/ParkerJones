@@ -25,10 +25,17 @@
 (() => {
   'use strict';
 
-  // PDFs at or below this length go through the vision path. 5 covers
-  // virtually every real-world PO; longer documents are usually a 1-page
-  // PO followed by 30 pages of T&Cs that text extraction handles fine.
-  const SHORT_PDF_PAGES = 5;
+  // Hard cap on the number of pages we ever look at — vision path renders
+  // up to this many, text path parses up to this many (server enforces the
+  // cap independently). Empirically, pages 4+ on industrial POs are pure
+  // Standard Terms & Conditions boilerplate — never useful for extraction.
+  const MAX_EXTRACT_PAGES = 3;
+
+  // PDFs at or below this length go through the vision path; longer ones
+  // go through the server-side text path. Same value as the page cap so
+  // every PO is treated consistently — short PDFs render every page; long
+  // PDFs send the first MAX_EXTRACT_PAGES pages of text.
+  const SHORT_PDF_PAGES = MAX_EXTRACT_PAGES;
 
   // Pages per chunk for the vision API. Gemini happily takes ~30
   // images/request; Anthropic via OpenRouter caps at 20 per message and
@@ -69,15 +76,15 @@
 
     if (pageCount <= SHORT_PDF_PAGES) {
       // ── VISION PATH ─────────────────────────────────────────────
-      // Render every page to PNG and let the LLM read the rendered
-      // page. Sidesteps column flattening AND overlaid template text
-      // in one shot — the model only sees what's actually rendered.
+      // Render every page (up to MAX_EXTRACT_PAGES) to PNG and let the
+      // LLM read the rendered page. Sidesteps column flattening AND
+      // overlaid template text in one shot — the model only sees what
+      // is actually rendered.
       method = 'vision';
-      const visionChunk = VISION_CHUNK_BY_PROVIDER[provider] || 20;
       onStage?.('extracting',
         `Short PDF (${pageCount} page${pageCount === 1 ? '' : 's'}) — extracting with vision model`);
       const { images } = await window.App.pdfParser.renderPagesToImages(file, {
-        maxPages: Math.max(visionChunk, SHORT_PDF_PAGES),
+        maxPages: MAX_EXTRACT_PAGES,
       });
       raw = await _callWithRetry(
         () => client.extractWithVision(images, { apiKeys, model }),
@@ -85,17 +92,23 @@
       );
     } else {
       // ── TEXT PATH (server-side pdfplumber) ──────────────────────
-      // Server parses the PDF with layout-aware text + last-wins char
-      // dedup (handles overlaid placeholders on Ariba-style templates).
+      // Server parses the first MAX_EXTRACT_PAGES pages with layout-
+      // aware text + last-wins char dedup (handles overlaid placeholders
+      // on Ariba-style templates). Pages 4+ on these PDFs are pure T&Cs.
       // We fall back to client-side pdf.js text if the server endpoint
       // is unreachable, and warn the rep that columns may be confused.
       method = 'text';
-      onStage?.('extracting', `Long PDF (${pageCount} pages) — parsing layout on server`);
+      onStage?.('extracting',
+        `${pageCount}-page PDF — parsing first ${MAX_EXTRACT_PAGES} pages on server`);
 
       let pages;
       try {
-        const parsed = await window.App.backend.parsePdfOnServer(file);
+        const parsed = await window.App.backend.parsePdfOnServer(file, MAX_EXTRACT_PAGES);
         pages = Array.isArray(parsed.pages) ? parsed.pages : [parsed.text || ''];
+        if (parsed.truncated) {
+          onStage?.('extracting',
+            `Parsed pages 1–${parsed.page_count} of ${parsed.page_count_full} (rest is T&Cs)`);
+        }
       } catch (err) {
         console.warn('Foundry: server parse failed, falling back to pdf.js text', err);
         warnings.push(
@@ -103,7 +116,9 @@
           'Multi-column blocks may be confused; double-check addresses on this PO.'
         );
         const fallback = await window.App.pdfParser.readFile(file);
-        pages = Array.isArray(fallback.pages) ? fallback.pages : [fallback.text || ''];
+        const allPages = Array.isArray(fallback.pages) ? fallback.pages : [fallback.text || ''];
+        // Apply the same cap on the fallback path.
+        pages = allPages.slice(0, MAX_EXTRACT_PAGES);
       }
 
       const providerLabel = provider === 'google' ? 'Gemini' : 'Claude/GPT';

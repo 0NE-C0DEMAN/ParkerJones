@@ -485,28 +485,42 @@ async def upload_source(po_id: str, file: UploadFile = File(...),
     return {"po_id": po_id, "stored": str(target.name), "bytes": len(contents)}
 
 
+# Hard cap on the number of pages the extract endpoint touches.
+# Empirically, pages 4+ on industrial POs are Standard Terms & Conditions
+# boilerplate — never useful for extraction. Capping at 3 keeps the LLM
+# input small and consistent across all PDFs.
+_EXTRACT_MAX_PAGES_DEFAULT = 3
+_EXTRACT_MAX_PAGES_HARD_CAP = 10   # safety net so the field can never blow up
+
+
 @app.post("/api/extract/parse")
 async def extract_parse(
     file: UploadFile = File(...),
+    max_pages: int = 0,
     user: auth.CurrentUser = Depends(auth.current_user),
 ):
-    """Parse a PDF with pdfplumber and return layout-aware text.
+    """Parse the first N pages of a PDF with pdfplumber, return layout-aware text.
 
-    The frontend uses this for the text-extraction path on long PDFs (>5
-    pages). For short PDFs the frontend renders pages to images client-side
-    and goes straight to the vision LLM — skipping this endpoint entirely.
+    The frontend uses this for the text-extraction path on multi-page PDFs.
+    For short PDFs (handled by the vision LLM client-side) this endpoint is
+    not called at all.
+
+    Query/form field:
+        max_pages — optional, default 3. Capped at _EXTRACT_MAX_PAGES_HARD_CAP.
 
     Returns:
         {
-            "page_count": int,
-            "text": "--- Page 1 ---\\n...\\n\\n--- Page 2 ---\\n...",
+            "page_count":      int,    # how many pages we actually parsed
+            "page_count_full": int,    # total pages in the PDF
+            "pages":           [str],  # per-page text (length == page_count)
+            "text":            str,    # convenience: pages joined with "--- Page N ---" separators
+            "truncated":       bool,   # True iff page_count < page_count_full
         }
 
-    The text comes from pdfplumber's extract_text(layout=True) which
-    preserves column whitespace. A "last-wins" character dedup pass
-    removes overlaid template placeholders that we've seen on some
-    Ariba-generated POs (DEF Purchasing Co. drawn under APG Purchasing
-    Co., SEFCOR INC drawn under ALLIED COMPONENTS INC, etc.).
+    Text comes from pdfplumber's extract_text(layout=True) which preserves
+    column whitespace, plus a "last-wins" char dedup pass that strips
+    overlaid template placeholders we've seen on some Ariba-generated POs
+    (DEF Purchasing Co. drawn under APG, SEFCOR drawn under ALLIED, etc.).
     """
     import io
     try:
@@ -518,14 +532,18 @@ async def extract_parse(
     if not contents:
         raise HTTPException(400, "Empty upload.")
 
+    cap = _EXTRACT_MAX_PAGES_DEFAULT if max_pages <= 0 else min(max_pages, _EXTRACT_MAX_PAGES_HARD_CAP)
+
     try:
         pdf = pdfplumber.open(io.BytesIO(contents))
     except Exception as e:
         raise HTTPException(400, f"Couldn't read PDF: {e}")
 
     try:
+        total_pages = len(pdf.pages)
+        pages_to_parse = pdf.pages[:cap]
         pages_text: list[str] = []
-        for page in pdf.pages:
+        for page in pages_to_parse:
             # Last-wins dedup: in a 2-pt grid cell, keep only the LAST char
             # drawn at that position. Visually, the later draw is on top,
             # which is what a human reading the PDF actually sees.
@@ -543,9 +561,11 @@ async def extract_parse(
             f"--- Page {i + 1} ---\n{t}" for i, t in enumerate(pages_text)
         )
         return {
-            "page_count": len(pages_text),
-            "pages": pages_text,   # per-page text, useful for client-side chunking
-            "text": full,           # convenience: pre-joined with separators
+            "page_count":      len(pages_text),
+            "page_count_full": total_pages,
+            "pages":           pages_text,
+            "text":            full,
+            "truncated":       len(pages_text) < total_pages,
         }
     finally:
         pdf.close()

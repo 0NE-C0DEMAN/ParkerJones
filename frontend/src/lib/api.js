@@ -220,13 +220,20 @@
   }
 
   /** Admin: snapshot of app-wide config (LLM key status + system stats). */
-  /** Server-side PDF parse via pdfplumber. Returns { page_count, text } where
-   *  text is layout-preserving + last-wins-dedup'd (handles overlaid template
-   *  text on some Ariba-generated POs). Used by the extractor on long PDFs
-   *  where rendering all pages to images would be wasteful. */
-  async function parsePdfOnServer(file) {
+  /** Server-side PDF parse via pdfplumber. Returns { page_count,
+   *  page_count_full, pages[], text, truncated } where text is layout-
+   *  preserving + last-wins-dedup'd (handles overlaid template text on
+   *  some Ariba-generated POs). Used by the extractor on long PDFs where
+   *  rendering all pages to images would be wasteful.
+   *
+   *  Pass `maxPages` to override the server's default 3-page cap. The
+   *  server clamps this to a hard ceiling regardless. */
+  async function parsePdfOnServer(file, maxPages) {
     const form = new FormData();
     form.append('file', file, file.name);
+    if (maxPages && Number.isFinite(maxPages) && maxPages > 0) {
+      form.append('max_pages', String(maxPages));
+    }
     const authHeaders = window.App?.auth?.authHeader?.() || {};
     const res = await fetch(`${BASE}/api/extract/parse`, {
       method: 'POST',
