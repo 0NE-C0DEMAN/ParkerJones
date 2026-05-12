@@ -1,21 +1,34 @@
 /* ==========================================================================
    extractor (window.App.api) — Real PO extraction pipeline.
-     1. parse PDF → text via pdf.js
-     2a. if PDF is scanned → render pages to PNG → vision LLM
-     2b. else → text-based LLM extraction (cheap, fast)
-     3. For large documents (long text or many scanned pages), split into
-        chunks, extract each chunk separately, merge results.
-     4. normalize / coerce types and ensure schema shape
 
-   The extractor is forgiving: per-chunk failures are logged and skipped
-   so the rest of the PO still extracts. If any chunk fails, a
-   `_warnings` array is attached to the result so the UI can surface it.
+   Strategy is driven by PDF length, not "is it scanned":
+
+     pageCount <= SHORT_PDF_PAGES  → render every page to PNG, run VISION LLM
+                                     (sidesteps column-flattening AND overlaid
+                                      template text in one shot — the model
+                                      only sees what's actually rendered)
+
+     pageCount >  SHORT_PDF_PAGES  → server-side pdfplumber extract_text(layout=True)
+                                     with last-wins char dedup, run TEXT LLM
+                                     (cheaper than rendering 30+ images, and
+                                      pdfplumber's layout output is already
+                                      column-aware)
+
+   For very long text-mode extractions we still chunk per-page so we never
+   hit MAX_TOKENS on a single response. Per-chunk failures are logged and
+   surfaced via `_warnings` on the result — the extractor never throws on
+   partial failure.
 
    Filename `mockApi.js` is preserved for backward compat with the existing
-   index.html script tag.
+   <script> tag.
    ========================================================================== */
 (() => {
   'use strict';
+
+  // PDFs at or below this length go through the vision path. 5 covers
+  // virtually every real-world PO; longer documents are usually a 1-page
+  // PO followed by 30 pages of T&Cs that text extraction handles fine.
+  const SHORT_PDF_PAGES = 5;
 
   // Pages per chunk for the vision API. Gemini happily takes ~30
   // images/request; Anthropic via OpenRouter caps at 20 per message and
@@ -25,10 +38,7 @@
     openrouter: 18,
   };
 
-  // Threshold for splitting the text path. Above this many pages we send
-  // chunks of ~TEXT_CHUNK_PAGES pages each rather than one massive call
-  // — protects against MAX_TOKENS on the response and MAX_CHARS truncation
-  // on the input.
+  // Pages per chunk on the long-text path. Caps response-token risk per call.
   const TEXT_CHUNK_PAGES = 50;
 
   // Per-call retry policy for transient errors (429, 5xx, network blips).
@@ -45,7 +55,7 @@
    */
   async function extractPO(file, { onStage } = {}) {
     onStage?.('parsing', 'Reading document');
-    const parsed = await window.App.pdfParser.readFile(file);
+    const pageCount = await window.App.pdfParser.getPdfPageCount(file);
 
     const model = window.App.config.getModel();
     const provider = window.App.config.providerForModel(model);
@@ -57,50 +67,63 @@
     let raw;
     let method;
 
-    if (window.App.pdfParser.isLikelyScanned(parsed)) {
+    if (pageCount <= SHORT_PDF_PAGES) {
+      // ── VISION PATH ─────────────────────────────────────────────
+      // Render every page to PNG and let the LLM read the rendered
+      // page. Sidesteps column flattening AND overlaid template text
+      // in one shot — the model only sees what's actually rendered.
       method = 'vision';
-      const totalPages = parsed.pageCount || await window.App.pdfParser.getPdfPageCount(file);
-      const chunkSize = VISION_CHUNK_BY_PROVIDER[provider] || 20;
-
-      if (totalPages <= chunkSize) {
-        onStage?.('extracting', `Scanned PDF (${totalPages} page${totalPages === 1 ? '' : 's'}) — extracting with vision model`);
-        const { images } = await window.App.pdfParser.renderPagesToImages(file, { maxPages: chunkSize });
-        raw = await _callWithRetry(
-          () => client.extractWithVision(images, { apiKeys, model }),
-          { label: 'vision extraction' }
-        );
-      } else {
-        const { merged, failed } = await _extractVisionChunked(
-          file, totalPages, chunkSize, client,
-          { apiKeys, model, onStage }
-        );
-        raw = merged;
-        if (failed.length) {
-          warnings.push(
-            `${failed.length} of ${Math.ceil(totalPages / chunkSize)} page-range chunks didn't extract: ` +
-            failed.map((r) => `pages ${r.start}–${r.end}`).join(', ') +
-            '. Line items from those pages may be missing — re-upload or check the source PDF.'
-          );
-        }
-      }
+      const visionChunk = VISION_CHUNK_BY_PROVIDER[provider] || 20;
+      onStage?.('extracting',
+        `Short PDF (${pageCount} page${pageCount === 1 ? '' : 's'}) — extracting with vision model`);
+      const { images } = await window.App.pdfParser.renderPagesToImages(file, {
+        maxPages: Math.max(visionChunk, SHORT_PDF_PAGES),
+      });
+      raw = await _callWithRetry(
+        () => client.extractWithVision(images, { apiKeys, model }),
+        { label: 'vision extraction' }
+      );
     } else {
+      // ── TEXT PATH (server-side pdfplumber) ──────────────────────
+      // Server parses the PDF with layout-aware text + last-wins char
+      // dedup (handles overlaid placeholders on Ariba-style templates).
+      // We fall back to client-side pdf.js text if the server endpoint
+      // is unreachable, and warn the rep that columns may be confused.
       method = 'text';
-      const pageCount = parsed.pages?.length || parsed.pageCount || 1;
+      onStage?.('extracting', `Long PDF (${pageCount} pages) — parsing layout on server`);
 
-      if (pageCount <= TEXT_CHUNK_PAGES) {
-        onStage?.('extracting', `Extracting fields with ${provider === 'google' ? 'Gemini' : 'Claude/GPT'}`);
+      let pages;
+      try {
+        const parsed = await window.App.backend.parsePdfOnServer(file);
+        pages = Array.isArray(parsed.pages) ? parsed.pages : [parsed.text || ''];
+      } catch (err) {
+        console.warn('Foundry: server parse failed, falling back to pdf.js text', err);
+        warnings.push(
+          'Server PDF parse was unavailable — used browser-side text extraction. ' +
+          'Multi-column blocks may be confused; double-check addresses on this PO.'
+        );
+        const fallback = await window.App.pdfParser.readFile(file);
+        pages = Array.isArray(fallback.pages) ? fallback.pages : [fallback.text || ''];
+      }
+
+      const providerLabel = provider === 'google' ? 'Gemini' : 'Claude/GPT';
+      if (pages.length <= TEXT_CHUNK_PAGES) {
+        onStage?.('extracting', `Extracting fields with ${providerLabel}`);
+        const fullText = pages
+          .map((p, i) => `--- Page ${i + 1} ---\n${p}`)
+          .join('\n\n');
         raw = await _callWithRetry(
-          () => client.extractWithLLM(parsed.text, { apiKeys, model }),
+          () => client.extractWithLLM(fullText, { apiKeys, model }),
           { label: 'text extraction' }
         );
       } else {
         const { merged, failed } = await _extractTextChunked(
-          parsed.pages, client, { apiKeys, model, onStage, providerLabel: provider === 'google' ? 'Gemini' : 'Claude/GPT' }
+          pages, client, { apiKeys, model, onStage, providerLabel }
         );
         raw = merged;
         if (failed.length) {
           warnings.push(
-            `${failed.length} of ${Math.ceil(pageCount / TEXT_CHUNK_PAGES)} page-range chunks didn't extract: ` +
+            `${failed.length} of ${Math.ceil(pages.length / TEXT_CHUNK_PAGES)} page-range chunks didn't extract: ` +
             failed.map((r) => `pages ${r.start}–${r.end}`).join(', ') +
             '. Line items from those pages may be missing.'
           );

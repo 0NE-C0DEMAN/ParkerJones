@@ -485,6 +485,72 @@ async def upload_source(po_id: str, file: UploadFile = File(...),
     return {"po_id": po_id, "stored": str(target.name), "bytes": len(contents)}
 
 
+@app.post("/api/extract/parse")
+async def extract_parse(
+    file: UploadFile = File(...),
+    user: auth.CurrentUser = Depends(auth.current_user),
+):
+    """Parse a PDF with pdfplumber and return layout-aware text.
+
+    The frontend uses this for the text-extraction path on long PDFs (>5
+    pages). For short PDFs the frontend renders pages to images client-side
+    and goes straight to the vision LLM — skipping this endpoint entirely.
+
+    Returns:
+        {
+            "page_count": int,
+            "text": "--- Page 1 ---\\n...\\n\\n--- Page 2 ---\\n...",
+        }
+
+    The text comes from pdfplumber's extract_text(layout=True) which
+    preserves column whitespace. A "last-wins" character dedup pass
+    removes overlaid template placeholders that we've seen on some
+    Ariba-generated POs (DEF Purchasing Co. drawn under APG Purchasing
+    Co., SEFCOR INC drawn under ALLIED COMPONENTS INC, etc.).
+    """
+    import io
+    try:
+        import pdfplumber
+    except ImportError:
+        raise HTTPException(500, "pdfplumber not installed on the server.")
+
+    contents = await file.read()
+    if not contents:
+        raise HTTPException(400, "Empty upload.")
+
+    try:
+        pdf = pdfplumber.open(io.BytesIO(contents))
+    except Exception as e:
+        raise HTTPException(400, f"Couldn't read PDF: {e}")
+
+    try:
+        pages_text: list[str] = []
+        for page in pdf.pages:
+            # Last-wins dedup: in a 2-pt grid cell, keep only the LAST char
+            # drawn at that position. Visually, the later draw is on top,
+            # which is what a human reading the PDF actually sees.
+            chars = page.chars
+            keep_indices: dict[tuple[int, int], int] = {}
+            for idx, c in enumerate(chars):
+                key = (int(c["x0"] / 2), int(c["top"] / 2))
+                if key not in keep_indices or idx > keep_indices[key]:
+                    keep_indices[key] = idx
+            keepers = {id(chars[i]) for i in keep_indices.values()}
+            filtered = page.filter(lambda c, kp=keepers: id(c) in kp)
+            pages_text.append(filtered.extract_text(layout=True) or "")
+
+        full = "\n\n".join(
+            f"--- Page {i + 1} ---\n{t}" for i, t in enumerate(pages_text)
+        )
+        return {
+            "page_count": len(pages_text),
+            "pages": pages_text,   # per-page text, useful for client-side chunking
+            "text": full,           # convenience: pre-joined with separators
+        }
+    finally:
+        pdf.close()
+
+
 @app.get("/api/pos/{po_id}/source")
 def get_source(po_id: str):
     """Public so PdfPreview iframe can load without sending Authorization

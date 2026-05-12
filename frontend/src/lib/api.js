@@ -220,6 +220,33 @@
   }
 
   /** Admin: snapshot of app-wide config (LLM key status + system stats). */
+  /** Server-side PDF parse via pdfplumber. Returns { page_count, text } where
+   *  text is layout-preserving + last-wins-dedup'd (handles overlaid template
+   *  text on some Ariba-generated POs). Used by the extractor on long PDFs
+   *  where rendering all pages to images would be wasteful. */
+  async function parsePdfOnServer(file) {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    const authHeaders = window.App?.auth?.authHeader?.() || {};
+    const res = await fetch(`${BASE}/api/extract/parse`, {
+      method: 'POST',
+      headers: { ...authHeaders },
+      body: form,
+    });
+    if (res.status === 401) {
+      window.App?.auth?.clearSession?.();
+      const err = new Error('Session expired — please sign in again.');
+      err.status = 401;
+      throw err;
+    }
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try { msg = (await res.json())?.detail || msg; } catch {}
+      throw new Error(msg);
+    }
+    return res.json();
+  }
+
   async function getAdminConfig() {
     return request('/api/admin/config');
   }
@@ -264,5 +291,6 @@
     getAdminConfig,
     setAdminConfig,
     clearAdminLlmKey,
+    parsePdfOnServer,
   };
 })();

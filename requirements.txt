@@ -6,6 +6,11 @@ pyjwt>=2.8
 passlib[bcrypt]>=1.7
 bcrypt>=4.0
 email-validator>=2.0
+# pdfplumber is used by the /api/extract/parse endpoint to give the LLM
+# layout-aware text for long PDFs (where shipping every page as an image
+# would be wasteful). For short PDFs (<=5 pages) we render to images in
+# the browser and skip the parser entirely.
+pdfplumber>=0.11
 # Streamlit is dev-only (local `streamlit run app.py`). HF Spaces serves
 # everything through FastAPI/uvicorn directly — Streamlit is not invoked
 # in the production container.
