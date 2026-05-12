@@ -3,6 +3,8 @@
      1. parse PDF → text via pdf.js
      2a. if text looks complete → text-based LLM extraction (cheap, fast)
      2b. if PDF is scanned (no text) → render pages to PNG → vision LLM
+         For PDFs longer than VISION_CHUNK_SIZE (provider-dependent), render
+         in chunks, extract each chunk separately, then merge the results.
      3. normalize / coerce types and ensure schema shape
 
    Filename `mockApi.js` is preserved for backward compat with the existing
@@ -11,9 +13,17 @@
 (() => {
   'use strict';
 
+  // Number of pages per vision-API call. Gemini happily takes 30+
+  // images/request; Anthropic via OpenRouter caps at 20 per message and
+  // prefers fewer for stability — so we go conservative there.
+  const VISION_CHUNK_BY_PROVIDER = {
+    google: 30,
+    openrouter: 18,
+  };
+
   /**
    * Run the extraction pipeline on a file. Auto-falls-back to vision mode
-   * for scanned PDFs.
+   * for scanned PDFs and chunks long ones automatically.
    * @param {File} file
    * @param {{ onStage?: (stage: string, label?: string) => void }} opts
    */
@@ -28,17 +38,25 @@
     const provider = window.App.config.providerForModel(model);
     const apiKeys = window.App.config.keysForProvider(provider);
     const client = provider === 'google' ? window.App.gemini : window.App.openrouter;
-
     if (!client) throw new Error(`Provider "${provider}" client not loaded.`);
 
     let raw;
     let method = 'text';
 
     if (window.App.pdfParser.isLikelyScanned(parsed)) {
-      onStage?.('extracting', 'Scanned PDF detected — using vision model');
-      const { images } = await window.App.pdfParser.renderPagesToImages(file, { maxPages: 5, scale: 1.6 });
-      raw = await client.extractWithVision(images, { apiKeys, model });
       method = 'vision';
+      const totalPages = parsed.pageCount || await window.App.pdfParser.getPdfPageCount(file);
+      const chunkSize = VISION_CHUNK_BY_PROVIDER[provider] || 20;
+
+      if (totalPages <= chunkSize) {
+        // Single-call vision path (most scanned POs).
+        onStage?.('extracting', `Scanned PDF (${totalPages} page${totalPages === 1 ? '' : 's'}) — extracting with vision model`);
+        const { images } = await window.App.pdfParser.renderPagesToImages(file, { maxPages: chunkSize });
+        raw = await client.extractWithVision(images, { apiKeys, model });
+      } else {
+        // Chunked vision path for long scanned PDFs.
+        raw = await _extractVisionChunked(file, totalPages, chunkSize, client, { apiKeys, model, onStage });
+      }
     } else {
       onStage?.('extracting', `Extracting fields with ${provider === 'google' ? 'Gemini' : 'Claude/GPT'}`);
       raw = await client.extractWithLLM(parsed.text, { apiKeys, model });
@@ -48,6 +66,89 @@
     const normalized = normalize(raw);
     normalized.extraction_method = method;
     return normalized;
+  }
+
+  /**
+   * Render pages in batches of `chunkSize`, call extractWithVision on each
+   * batch, merge results. Header-level fields come from the first chunk
+   * that filled them in; line items are concatenated across all chunks
+   * (lower-numbered chunks first); totals are recomputed from line items.
+   */
+  async function _extractVisionChunked(file, totalPages, chunkSize, client, { apiKeys, model, onStage }) {
+    const ranges = [];
+    for (let start = 1; start <= totalPages; start += chunkSize) {
+      ranges.push({ start, end: Math.min(start + chunkSize - 1, totalPages) });
+    }
+    onStage?.('extracting', `Large scanned PDF (${totalPages} pages) — processing in ${ranges.length} chunks of up to ${chunkSize}`);
+
+    const parts = [];
+    for (let i = 0; i < ranges.length; i++) {
+      const { start, end } = ranges[i];
+      onStage?.(
+        'extracting',
+        `Chunk ${i + 1}/${ranges.length} — pages ${start}-${end} of ${totalPages}`
+      );
+      const { images } = await window.App.pdfParser.renderPagesToImages(file, {
+        startPage: start,
+        endPage: end,
+        maxPages: chunkSize,
+      });
+      try {
+        const part = await client.extractWithVision(images, { apiKeys, model });
+        parts.push(part);
+      } catch (err) {
+        // Chunk failure shouldn't abort the whole PO — log + keep going so
+        // the user at least gets the line items from the chunks that worked.
+        console.warn(`Foundry: chunk ${i + 1} (pages ${start}-${end}) failed:`, err);
+      }
+    }
+
+    if (parts.length === 0) {
+      throw new Error('All vision chunks failed — try a different model or re-upload the PDF.');
+    }
+    return _mergeChunkedResults(parts);
+  }
+
+  /** Header fields where we want to take the first non-empty value across chunks. */
+  const HEADER_FIELDS = [
+    'po_number', 'po_date', 'revision',
+    'customer', 'customer_address',
+    'supplier', 'supplier_address',
+    'bill_to', 'ship_to',
+    'payment_terms',
+    'buyer', 'buyer_email',
+    'currency',
+  ];
+
+  function _mergeChunkedResults(parts) {
+    if (parts.length === 0) return {};
+    if (parts.length === 1) return parts[0];
+
+    const merged = {};
+    // Header: prefer the first chunk's value; fill blanks from later chunks.
+    for (const key of HEADER_FIELDS) {
+      for (const p of parts) {
+        if (p && p[key] && String(p[key]).trim() !== '') {
+          merged[key] = p[key];
+          break;
+        }
+      }
+    }
+    // Line items: concatenate in chunk order.
+    merged.line_items = parts.flatMap((p) => Array.isArray(p?.line_items) ? p.line_items : []);
+    // Renumber sequentially so duplicate line: 1 from each chunk doesn't
+    // confuse the reviewer.
+    merged.line_items = merged.line_items.map((li, idx) => ({ ...li, line: idx + 1 }));
+    // Total: recompute from the line items (the per-chunk totals are
+    // partial sums; the model has no way to know the whole picture).
+    merged.total = merged.line_items.reduce((sum, li) => {
+      const amt = Number(li.amount);
+      if (Number.isFinite(amt) && amt > 0) return sum + amt;
+      const qty = Number(li.quantity) || 0;
+      const px = Number(li.unit_price) || 0;
+      return sum + qty * px;
+    }, 0);
+    return merged;
   }
 
   function normalize(data) {

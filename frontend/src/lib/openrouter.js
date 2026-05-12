@@ -70,9 +70,9 @@ OUTPUT SCHEMA
   "total": 0
 }`;
 
-  async function extractWithLLM(documentText, { apiKey, apiKeys, model, signal, maxTokens = 1000 } = {}) {
+  async function extractWithLLM(documentText, { apiKey, apiKeys, model, signal, maxTokens = 8192 } = {}) {
     if (!documentText || documentText.length < 20) {
-      throw new Error('No text could be read from this document. If it\'s a scanned PDF, OCR support is coming via the Streamlit backend.');
+      throw new Error('No text could be read from this document. Scanned PDFs auto-route to the vision model — try re-uploading.');
     }
     const keys = (Array.isArray(apiKeys) && apiKeys.length) ? apiKeys : (apiKey ? [apiKey] : []);
     if (!keys.length) throw new Error('No API key configured. Set one in Settings.');
@@ -234,7 +234,7 @@ OUTPUT SCHEMA
    * vision-capable model. Used when text extraction fails (scanned PDFs).
    * Same JSON output schema as the text path.
    */
-  async function extractWithVision(pageImages, { apiKey, apiKeys, model, signal, maxTokens = 1000 } = {}) {
+  async function extractWithVision(pageImages, { apiKey, apiKeys, model, signal, maxTokens = 8192 } = {}) {
     if (!pageImages || pageImages.length === 0) {
       throw new Error('No page images supplied for vision extraction.');
     }

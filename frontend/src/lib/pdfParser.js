@@ -1,7 +1,8 @@
 /* ==========================================================================
    pdfParser.js — Extract text from a PDF file in the browser via pdf.js.
-   Falls back to reading raw text for .txt / .docx-as-text / image filenames
-   (real DOCX & OCR will come later via the Streamlit backend).
+   Falls back to reading raw text for .txt / .csv / .md. Scanned PDFs are
+   detected by `isLikelyScanned` and routed to the vision LLM path
+   instead of OCR.
    ========================================================================== */
 (() => {
   'use strict';
@@ -81,22 +82,33 @@
       const text = await extractPlainText(file);
       return { text, pages: [text], pageCount: 1 };
     }
-    throw new Error(`Format .${ext} isn't supported in the browser yet. We'll handle DOCX/images via the Streamlit backend.`);
+    throw new Error(`Format .${ext} isn't supported. Convert to PDF and re-upload.`);
   }
 
   /**
-   * Render up to `maxPages` pages of a PDF to PNG data URLs at the given
-   * scale. Used as the vision-fallback path when text extraction returns
-   * nothing useful (= scanned PDF).
+   * Render pages of a PDF to PNG data URLs at the given scale. Used as the
+   * vision-fallback path when text extraction returns nothing useful
+   * (= scanned PDF).
+   *
+   * By default renders pages 1..maxPages. For chunked extraction of long
+   * documents, pass `startPage` and `endPage` (1-indexed, inclusive) to
+   * render a specific range. `maxPages` still acts as a safety cap on the
+   * range length so a runaway caller can't blow up the browser.
    */
-  async function renderPagesToImages(file, { maxPages = 5, scale = 1.6 } = {}) {
+  async function renderPagesToImages(
+    file,
+    { maxPages = 30, startPage = 1, endPage = null, scale = 1.6, onPage } = {}
+  ) {
     ensureWorker();
     const buf = await file.arrayBuffer();
     const pdf = await window.pdfjsLib.getDocument({ data: buf, disableFontFace: true }).promise;
 
-    const limit = Math.min(maxPages, pdf.numPages);
+    const from = Math.max(1, startPage);
+    const wantedEnd = endPage != null ? Math.min(endPage, pdf.numPages) : pdf.numPages;
+    const to = Math.min(wantedEnd, from + maxPages - 1);
+
     const images = [];
-    for (let i = 1; i <= limit; i++) {
+    for (let i = from; i <= to; i++) {
       const page = await pdf.getPage(i);
       const viewport = page.getViewport({ scale });
       const canvas = document.createElement('canvas');
@@ -105,8 +117,23 @@
       const ctx = canvas.getContext('2d');
       await page.render({ canvasContext: ctx, viewport }).promise;
       images.push(canvas.toDataURL('image/png'));
+      onPage?.(i, to);
     }
-    return { images, totalPages: pdf.numPages, sentPages: limit };
+    return {
+      images,
+      totalPages: pdf.numPages,
+      startPage: from,
+      endPage: to,
+      sentPages: images.length,
+    };
+  }
+
+  /** Cheap helper — returns the page count without rendering anything. */
+  async function getPdfPageCount(file) {
+    ensureWorker();
+    const buf = await file.arrayBuffer();
+    const pdf = await window.pdfjsLib.getDocument({ data: buf, disableFontFace: true }).promise;
+    return pdf.numPages;
   }
 
   /**
@@ -120,5 +147,11 @@
   }
 
   window.App = window.App || {};
-  window.App.pdfParser = { extractPdfText, readFile, renderPagesToImages, isLikelyScanned };
+  window.App.pdfParser = {
+    extractPdfText,
+    readFile,
+    renderPagesToImages,
+    isLikelyScanned,
+    getPdfPageCount,
+  };
 })();

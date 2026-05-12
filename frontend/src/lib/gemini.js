@@ -2,10 +2,9 @@
    gemini.js — Google Generative Language API client.
    Used when the active API key starts with "AIzaSy" (Google Gemini key).
 
-   Free tier (per Google project):
-     gemini-2.5-flash-lite : ~1,500 req/day  (recommended default)
-     gemini-2.5-flash      : ~1,500 req/day  (slightly better quality)
-     gemini-2.5-pro        : ~50 req/day     (paid for higher)
+   Free tier exists for all 2.5 models but Google publishes per-account
+   limits via aistudio.google.com/rate-limit rather than fixed public
+   numbers — don't hard-code RPD here.
 
    Same JSON schema in/out as openrouter.js so the extractor can route
    to either backend transparently.
@@ -132,14 +131,18 @@ OUTPUT SCHEMA
     return text;
   }
 
-  async function extractWithLLM(documentText, { apiKey, apiKeys, model, signal, maxTokens = 1500 } = {}) {
+  async function extractWithLLM(documentText, { apiKey, apiKeys, model, signal, maxTokens = 8192 } = {}) {
     if (!documentText || documentText.length < 20) {
       throw new Error('No text could be read from this document.');
     }
     const keys = (Array.isArray(apiKeys) && apiKeys.length) ? apiKeys : (apiKey ? [apiKey] : []);
     if (!keys.length) throw new Error('No Gemini API key configured.');
 
-    const MAX_CHARS = 80000;
+    // Gemini 2.5 models have a 1M-token input context window; 500k chars
+    // (~125k tokens) is well within that and covers the largest real-world
+    // POs we've seen (200+ pages). Past this, very few POs justify the
+    // extra cost, and accuracy starts to fall.
+    const MAX_CHARS = 500000;
     const trimmed = documentText.length > MAX_CHARS
       ? documentText.slice(0, MAX_CHARS) + '\n\n[document truncated for length]'
       : documentText;
@@ -165,7 +168,7 @@ OUTPUT SCHEMA
     });
   }
 
-  async function extractWithVision(pageImages, { apiKey, apiKeys, model, signal, maxTokens = 1500 } = {}) {
+  async function extractWithVision(pageImages, { apiKey, apiKeys, model, signal, maxTokens = 8192 } = {}) {
     if (!pageImages || pageImages.length === 0) {
       throw new Error('No page images supplied for vision extraction.');
     }
