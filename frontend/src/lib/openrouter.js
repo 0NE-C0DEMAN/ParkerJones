@@ -56,10 +56,19 @@ LINE ITEMS
 - "amount" = quantity × unit_price. Compute whichever is missing.
 - "uom" defaults to "EA".
 
+INPUT FORMAT
+At the bottom of each page you may see a section like:
+  === STRUCTURED TABLES (use these for line items if visible) ===
+  [TABLE 1]
+  | Line | Part #  | Description | Qty | Unit Price | Total |
+  | 1    | X-1234  | Widget A    | 5   | 10.00      | 50.00 |
+  ...
+When a [TABLE N] block is present, treat IT as the authoritative source for line items — it's the parser's structured view of the same table that may have been flattened into prose above. Header blocks (VENDOR / SHIP TO / BILL TO / BUYER) should still be read from the layout-preserved body text, not from tables.
+
 COLUMN LAYOUT HINT (text mode)
-The text may come from a multi-column PDF. Related blocks may appear on the same line with significant whitespace between them — e.g.
+The body text is whitespace-aligned to the original column layout. Related blocks may appear on the same line with significant whitespace between them — e.g.
   "VENDOR:  COOPER LIGHTING               SHIP TO:  TARHEEL ELECTRIC"
-Treat whitespace as a column boundary; left column is supplier, right column is ship-to. Do not concatenate their addresses.
+Treat whitespace as a column boundary; left column is supplier, right column is ship-to. Do not concatenate their addresses. If the columns drift further down (one has more lines than the other), stay aligned with the original column boundary, not with the visual row.
 
 OUTPUT SCHEMA
 {

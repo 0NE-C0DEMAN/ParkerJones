@@ -69,10 +69,19 @@ LINE ITEMS
 TOTALS
 - "total": grand total of the PO (sum of all line items including freight/tax).
 
+INPUT FORMAT
+The document text you receive comes from a layout-preserving PDF parser, and at the bottom of each page you may see a section like:
+  === STRUCTURED TABLES (use these for line items if visible) ===
+  [TABLE 1]
+  | Line | Part #  | Description | Qty | Unit Price | Total |
+  | 1    | X-1234  | Widget A    | 5   | 10.00      | 50.00 |
+  ...
+When a [TABLE N] block is present, treat IT as the authoritative source for line items — it's the parser's structured view of the same table that may have been flattened into prose above. Header blocks (VENDOR / SHIP TO / BILL TO / BUYER) should still be read from the layout-preserved body text, not from tables.
+
 COLUMN LAYOUT HINT (text mode)
-If the input text was extracted from a multi-column PDF, related blocks may appear on the SAME LINE with significant whitespace between them — e.g.
+The body text is whitespace-aligned to the original column layout. Related blocks may appear on the SAME LINE with significant whitespace between them — e.g.
   "VENDOR:  COOPER LIGHTING               SHIP TO:  TARHEEL ELECTRIC"
-Treat the whitespace as a column boundary; the left column is the supplier block and the right column is the ship-to block. Do not concatenate their addresses.
+Treat the whitespace as a column boundary; the left column is the supplier block and the right column is the ship-to block. Do not concatenate their addresses. If the columns drift onto different vertical positions further down (one column has more lines than the other), stay aligned with the original column boundary, not with the visual row.
 
 OUTPUT SCHEMA
 {

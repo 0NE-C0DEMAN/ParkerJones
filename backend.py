@@ -499,11 +499,30 @@ async def extract_parse(
     max_pages: int = 0,
     user: auth.CurrentUser = Depends(auth.current_user),
 ):
-    """Parse the first N pages of a PDF with pdfplumber, return layout-aware text.
+    """Parse the first N pages of a PDF with pdfplumber. Returns layout-aware
+    text PLUS structured table extraction, so the LLM gets two complementary
+    views of every page:
 
-    The frontend uses this for the text-extraction path on multi-page PDFs.
-    For short PDFs (handled by the vision LLM client-side) this endpoint is
-    not called at all.
+      1. Layout-preserving text (column whitespace intact)  — best for
+         header blocks like VENDOR:/SHIP TO:/BILL TO:/BUYER:.
+      2. Markdown-rendered tables                            — best for the
+         line-items grid, which `extract_text` flattens into prose.
+
+    Each page's output looks like:
+
+        ── flowing text with layout preserved ──
+        ... (header blocks, freight notes, totals, T&Cs)
+
+        === STRUCTURED TABLES (use these for line items if visible) ===
+
+        [TABLE 1]
+        | Line | Part # | Description | Qty | Unit Price | Total |
+        | 1    | X-1234 | Widget A    | 5   | 10.00       | 50.00 |
+        ...
+
+    The frontend doesn't need to change — it joins pages with "--- Page N ---"
+    separators as before. The LLM prompt is updated to treat [TABLE N] blocks
+    as the authoritative source for line items when they're present.
 
     Query/form field:
         max_pages — optional, default 3. Capped at _EXTRACT_MAX_PAGES_HARD_CAP.
@@ -544,18 +563,7 @@ async def extract_parse(
         pages_to_parse = pdf.pages[:cap]
         pages_text: list[str] = []
         for page in pages_to_parse:
-            # Last-wins dedup: in a 2-pt grid cell, keep only the LAST char
-            # drawn at that position. Visually, the later draw is on top,
-            # which is what a human reading the PDF actually sees.
-            chars = page.chars
-            keep_indices: dict[tuple[int, int], int] = {}
-            for idx, c in enumerate(chars):
-                key = (int(c["x0"] / 2), int(c["top"] / 2))
-                if key not in keep_indices or idx > keep_indices[key]:
-                    keep_indices[key] = idx
-            keepers = {id(chars[i]) for i in keep_indices.values()}
-            filtered = page.filter(lambda c, kp=keepers: id(c) in kp)
-            pages_text.append(filtered.extract_text(layout=True) or "")
+            pages_text.append(_extract_page_structured(page))
 
         full = "\n\n".join(
             f"--- Page {i + 1} ---\n{t}" for i, t in enumerate(pages_text)
@@ -569,6 +577,170 @@ async def extract_parse(
         }
     finally:
         pdf.close()
+
+
+def _extract_page_structured(page) -> str:
+    """Return a structured text view of one PDF page:
+        layout-preserving body text  +  detected tables as markdown.
+
+    The dedup pass (last-wins char at a 2-pt grid) strips overlaid template
+    placeholders seen on Ariba-generated POs ("DEF Purchasing" drawn under
+    "APG Purchasing", etc.). Without it, the text layer reads as garbled
+    letter-by-letter interleavings.
+
+    Table detection uses `lines_strict` — meaning we only emit a [TABLE N]
+    block when the PDF actually contains ruling lines forming a grid. This
+    rules out false positives from "text columns that happen to align"
+    (which plagued an earlier permissive version). Industrial POs that have
+    real tables — like CEEUS — get a clean structured view. Ariba-template
+    POs (Meridian / Apex / Duke) and rulings-free POs (TEMA) emit no tables,
+    and the LLM relies entirely on the layout-preserved body text, which
+    already lays out columns via whitespace. Both views are valid; this is
+    purely additive.
+    """
+    # ── 1. Overlay dedup ──────────────────────────────────────────────────
+    # Ariba-generated POs draw a template placeholder line just under
+    # (in z-order) the real value, with a small 1–3pt vertical offset and
+    # an overlapping x range. Two flavors we've seen:
+    #   (A) Italic placeholder + regular value at ~1pt offset
+    #       ("DEF Purchasing"  underdrawn by "APG Purchasing")
+    #   (B) Same-font placeholder + value at ~2pt offset
+    #       ("VALMONT INDUSTRIES INC" overdrawn by "TRITON FABRICATORS INC")
+    #
+    # Strategy — operate at LINE level, not char level:
+    #   1. Group chars by exact baseline y (0.5pt resolution).
+    #   2. For each pair of lines whose y-coordinates are within 3pt of
+    #      each other AND whose x-ranges overlap, the earlier-drawn line
+    #      is the placeholder and gets dropped wholesale.
+    #
+    # Char-level proximity dedup is fragile because character widths differ
+    # between fonts — even when two lines are clearly overlaid, individual
+    # letters of the longer line won't all sit directly above letters of
+    # the shorter line. Working at line granularity sidesteps that.
+    #
+    # `page.filter(fn)` runs fn against EVERY object — chars, lines, rects.
+    # We only filter chars; let non-char objects pass through so ruling
+    # lines stay intact (table detection depends on them).
+    from collections import defaultdict
+    chars = page.chars
+
+    # Group chars by baseline y at 0.5pt resolution
+    by_baseline: dict[float, list[int]] = defaultdict(list)
+    for idx, c in enumerate(chars):
+        by_baseline[round(c["top"] * 2) / 2].append(idx)
+
+    # Within each baseline, split into segments separated by big x-gaps.
+    # A PO often has two columns on the same line (e.g. "VENDOR block on
+    # left  |  SHIP-TO block on right") — we want to treat each side as
+    # its own segment so an overlay on one side doesn't blow away the
+    # other side's text.
+    SEGMENT_GAP_PT = 15.0
+    segments: list[dict] = []  # each: { y, min_x, max_x, min_idx, indices }
+    for y, idxs in by_baseline.items():
+        items = sorted(((chars[i]["x0"], chars[i]["x1"], i) for i in idxs))
+        cur_idxs: list[int] = []
+        cur_x0 = cur_x1 = None
+        last_x1 = None
+
+        def _flush():
+            if cur_idxs:
+                segments.append({
+                    "y":       y,
+                    "min_x":   cur_x0,
+                    "max_x":   cur_x1,
+                    "min_idx": min(cur_idxs),
+                    "indices": set(cur_idxs),
+                })
+
+        for x0, x1, idx in items:
+            if last_x1 is not None and x0 - last_x1 > SEGMENT_GAP_PT:
+                _flush()
+                cur_idxs = []
+                cur_x0 = cur_x1 = None
+            cur_idxs.append(idx)
+            cur_x0 = x0 if cur_x0 is None else min(cur_x0, x0)
+            cur_x1 = x1 if cur_x1 is None else max(cur_x1, x1)
+            last_x1 = x1
+        _flush()
+
+    # Find which segments are "underdrawn" by another nearby segment
+    dropped_idx: set[int] = set()
+    OVERLAY_DY = 3.0
+    # Sort by y so we can early-break when distance exceeds OVERLAY_DY
+    segments.sort(key=lambda s: s["y"])
+
+    for i, s1 in enumerate(segments):
+        for s2 in segments[i + 1:]:
+            dy = s2["y"] - s1["y"]
+            if dy < 0.5:
+                continue
+            if dy >= OVERLAY_DY:
+                break
+            overlap = min(s1["max_x"], s2["max_x"]) - max(s1["min_x"], s2["min_x"])
+            if overlap < 3:
+                continue
+            # Earlier-drawn segment is the placeholder underlay
+            if s1["min_idx"] < s2["min_idx"]:
+                dropped_idx.update(s1["indices"])
+            else:
+                dropped_idx.update(s2["indices"])
+
+    keepers = {id(chars[i]) for i in range(len(chars)) if i not in dropped_idx}
+
+    def _keep(obj, _kp=keepers):
+        if obj.get("object_type") == "char":
+            return id(obj) in _kp
+        return True  # lines, rects, curves, etc. — leave alone
+
+    filtered = page.filter(_keep)
+
+    # ── 2. Layout-preserving body text ────────────────────────────────────
+    layout_text = filtered.extract_text(layout=True) or ""
+
+    # ── 3. Detected tables as markdown — STRICT line-based only ───────────
+    table_blocks: list[str] = []
+    try:
+        tables = filtered.extract_tables({
+            "vertical_strategy":   "lines_strict",
+            "horizontal_strategy": "lines_strict",
+        }) or []
+
+        n = 0
+        for table in tables:
+            if not table:
+                continue
+            cols = max(len(r) for r in table)
+            # Need at least 2 rows AND 2 columns to be a real table
+            if len(table) < 2 or cols < 2:
+                continue
+            # Drop near-empty tables (mostly whitespace = layout artifact)
+            non_empty_cells = sum(
+                1 for row in table for cell in row
+                if cell is not None and str(cell).strip()
+            )
+            total_cells = len(table) * cols
+            if total_cells == 0 or non_empty_cells / total_cells < 0.25:
+                continue
+            n += 1
+            lines = [f"[TABLE {n}]"]
+            for row in table:
+                cells = [
+                    "" if c is None else str(c).replace("\n", " ").strip()
+                    for c in row
+                ]
+                lines.append("| " + " | ".join(cells) + " |")
+            table_blocks.append("\n".join(lines))
+    except Exception:
+        # Table extraction is purely additive — never fail the parse over it
+        pass
+
+    if table_blocks:
+        return (
+            layout_text
+            + "\n\n=== STRUCTURED TABLES (use these for line items if visible) ===\n\n"
+            + "\n\n".join(table_blocks)
+        )
+    return layout_text
 
 
 @app.get("/api/pos/{po_id}/source")
