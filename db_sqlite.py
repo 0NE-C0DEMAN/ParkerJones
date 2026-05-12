@@ -12,6 +12,7 @@ dead simple.
 """
 from __future__ import annotations
 
+import os
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -19,7 +20,14 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable
 
-DB_PATH = Path(__file__).parent / "foundry.db"
+# Path to the SQLite DB file. Configurable via FOUNDRY_SQLITE_PATH so we can
+# point it at a mounted bucket (e.g. /home/user/app/data/foundry.db on HF
+# Spaces). Falls back to `foundry.db` next to this file for local dev.
+_env_path = os.environ.get("FOUNDRY_SQLITE_PATH")
+DB_PATH = Path(_env_path) if _env_path else (Path(__file__).parent / "foundry.db")
+# Make sure the parent directory exists — the bucket mount provides it in
+# production, but a fresh local dev tree may not have it yet.
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (

@@ -7,8 +7,6 @@ passlib[bcrypt]>=1.7
 bcrypt>=4.0
 pyyaml>=6.0
 email-validator>=2.0
-# Production DB driver — Turso/libSQL over HTTP
-libsql>=0.1.11
 # Streamlit is dev-only (local `streamlit run app.py`). HF Spaces serves
 # everything through FastAPI/uvicorn directly — Streamlit is not invoked
 # in the production container.

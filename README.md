@@ -11,34 +11,30 @@ short_description: PO extraction app — Parker Jones / Lekson Associates
 
 # Foundry — PO Capture
 
-Drop a PDF purchase order, an LLM extracts structured data, review & edit, save to a shared ledger, export to Excel. Hosted on Hugging Face Spaces, data lives in Turso (cloud libSQL). Reps open the Space URL and sign in — no install.
+Drop a PDF purchase order, an LLM extracts structured data, review & edit, save to a shared ledger, export to Excel. Everything — app, data, source files — runs on Hugging Face. Reps open the Space URL and sign in; no install, no external services.
 
 **Live:** https://huggingface.co/spaces/SamTwo/foundry
 
-## Architecture
+## Architecture (all on Hugging Face)
 
 ```
-                              ┌──────────────────────┐
-                              │  Turso (libSQL)      │
-                              │  POs · LineItems     │
-                              │  Users               │
-                              └──────────┬───────────┘
-                                         │ HTTPS
-              ┌──────────────────────────┴────────────────────────┐
-              │   Hugging Face Space (Docker, port 7860)          │
-              │                                                   │
-              │   FastAPI (backend.py)                            │
-              │     GET  /            → React HTML (frontend_html)│
-              │     GET  /api/*       → REST                      │
-              │     GET  /api/pos/{id}/source → seed PDF bytes    │
-              │                                                   │
-              │   Seed PDFs baked into the image at files/        │
-              └──────────────────────────┬────────────────────────┘
-                                         │ HTTPS
-                                ┌────────┴────────┐
-                                │ Reps' browsers  │
-                                └─────────────────┘
+   ┌────────────────────────────────────────────────────────────┐
+   │  HF Space:  SamTwo/foundry  (Docker, port 7860)            │
+   │                                                            │
+   │  FastAPI (backend.py)                                      │
+   │    GET  /              → React HTML (frontend_html.py)     │
+   │    GET  /api/*         → REST                              │
+   │                                                            │
+   │  Volume mounts (managed by the platform, read-write):      │
+   │    /home/user/app/files  ←  hf://buckets/SamTwo/foundry-sources
+   │    /home/user/app/data   ←  hf://buckets/SamTwo/foundry-db
+   │                                                            │
+   │  db_sqlite.py opens   /home/user/app/data/foundry.db       │
+   │  backend.py writes    /home/user/app/files/{po_id}.pdf     │
+   └────────────────────────────────────────────────────────────┘
 ```
+
+Two private HF Storage Buckets hold the durable state: one for the SQLite database, one for the uploaded source PDFs. Both are mounted into the Space at boot. Everything sits inside the free 100 GB HF private quota (current usage ~1 MB).
 
 One Docker process serves the whole single-page app on port 7860. No separate frontend build step — React is loaded from CDN and Babel transpiles JSX in the browser.
 
@@ -49,16 +45,15 @@ ParkerJones/
 ├── backend.py              # FastAPI — auth, PO CRUD, Excel export, serves SPA at /
 ├── frontend_html.py        # Builds the React HTML payload (used by FastAPI + Streamlit)
 ├── auth.py                 # JWT + bcrypt + invitation YAML
-├── db.py                   # Dispatcher → db_sqlite OR db_turso
-├── db_sqlite.py            # Local dev fallback (offline)
-├── db_turso.py             # Production DB (cloud libSQL)
+├── db.py                   # Trivial shim that re-exports db_sqlite
+├── db_sqlite.py            # The only backend — honours FOUNDRY_SQLITE_PATH
 ├── excel_export.py         # XLSX builder (openpyxl)
 ├── app.py                  # Streamlit dev entry — only used locally
 ├── Dockerfile              # Production image for HF Spaces
 ├── requirements.txt
 ├── users.yaml.example      # Invitation list template (real users.yaml is gitignored)
 ├── scripts/
-│   └── migrate_sqlite_to_turso.py
+│   └── migrate_turso_to_sqlite.py   # One-shot, kept for traceability
 ├── .streamlit/
 │   ├── config.toml
 │   └── secrets.toml.example
@@ -97,11 +92,18 @@ Secrets are set in **Settings → Variables and secrets** (never commit them):
 
 | Key | Example |
 |---|---|
-| `FOUNDRY_DB_BACKEND` | `turso` |
-| `TURSO_DB_URL` | `libsql://…turso.io` |
-| `TURSO_DB_TOKEN` | `eyJ…` |
+| `FOUNDRY_DB_BACKEND` | `sqlite` |
+| `FOUNDRY_SQLITE_PATH` | `/home/user/app/data/foundry.db` |
 | `OPENROUTER_API_KEY` | `sk-or-v1-…` or `AIza…` for Gemini |
 | `FOUNDRY_JWT_SECRET` | hex from `python -c "import secrets; print(secrets.token_hex(32))"` |
+
+Volume mounts (set once via CLI; survive restarts):
+
+```
+hf spaces volumes set SamTwo/foundry \
+    -v hf://buckets/SamTwo/foundry-sources:/home/user/app/files \
+    -v hf://buckets/SamTwo/foundry-db:/home/user/app/data
+```
 
 ## Local development
 
@@ -119,17 +121,30 @@ uvicorn backend:app --port 7860
 streamlit run app.py
 ```
 
-For offline-only development without Turso, set `FOUNDRY_DB_BACKEND = "sqlite"` in `secrets.toml` (or unset). Data lives in `foundry.db` next to the app.
+Local dev defaults to `./foundry.db` (next to the code) when `FOUNDRY_SQLITE_PATH` is unset. Override the path with that env var if you want to share a DB file between dev runs.
 
-## Source-file persistence
+## Persistence model
 
-All source PDFs live in a **Hugging Face Storage Bucket** (`SamTwo/foundry-sources`, private), mounted into the Space as a read-write filesystem at `/home/user/app/files`. `backend.py` reads/writes from the local path; the mount transparently fans those out to the bucket, so:
+Two private HF Buckets hold all durable state, both mounted into the Space as read-write filesystems:
 
-- New uploads through the UI survive container restarts
-- The Space repo stays code-only (no binary PDFs in git)
-- No backend code is bucket-aware — it's just files on disk from the app's perspective
+| Bucket | Mount path | Contains |
+|---|---|---|
+| `SamTwo/foundry-db` | `/home/user/app/data` | `foundry.db` (SQLite — users, POs, line items) |
+| `SamTwo/foundry-sources` | `/home/user/app/files` | source PDFs, one per PO (`{po_id}.pdf`) |
 
-Configured once via `hf spaces volumes set SamTwo/foundry -v hf://buckets/SamTwo/foundry-sources:/home/user/app/files`. Inspect or change with `hf spaces volumes ls SamTwo/foundry`. Storage uses the free 100 GB private quota; current usage is well under 1 MB.
+`backend.py` and `db_sqlite.py` use plain local paths — no SDK calls. The platform's mount machinery flushes writes back to the buckets, so:
+
+- New PO inserts persist across container restarts and Space rebuilds
+- New PDF uploads through the UI persist the same way
+- The Space repo stays code-only — no binary blobs in git, no DB files
+
+Sanity-check that the mount config is still in place:
+
+```
+hf spaces volumes ls SamTwo/foundry
+```
+
+Storage uses the free 100 GB private quota; current footprint is under 1 MB.
 
 ## Security
 
