@@ -17,8 +17,10 @@ foundry.db-shm
 foundry.db-wal
 *.sqlite
 *.sqlite3
-files/
 .foundry/
+# `files/` IS shipped — it contains the seed source PDFs that are tracked in
+# git (force-added on top of .gitignore). Runtime uploads go to the same
+# directory but live only in the running container.
 
 # Editor / IDE
 .vscode/
