@@ -453,7 +453,13 @@
                   <TeamView pushToast={push} currentUser={user} />
                 )}
                 {view === 'settings' && (
-                  <SettingsView recordCount={repository.length} onClearLedger={handleClearLedger} pushToast={push} backendOnline={backendOnline} />
+                  <SettingsView
+                    recordCount={repository.length}
+                    onClearLedger={handleClearLedger}
+                    pushToast={push}
+                    backendOnline={backendOnline}
+                    user={user}
+                  />
                 )}
               </ErrorBoundary>
             )}

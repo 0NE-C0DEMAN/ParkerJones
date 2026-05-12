@@ -96,12 +96,6 @@ class PORecordSaved(PORecord):
     updated_by_email: Optional[str] = None
 
 
-class RegisterRequest(BaseModel):
-    email: EmailStr
-    full_name: str = Field(min_length=1, max_length=120)
-    password: str = Field(min_length=8, max_length=200)
-
-
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
@@ -121,18 +115,25 @@ class PasswordChange(BaseModel):
     new_password: str = Field(min_length=8, max_length=200)
 
 
+class AdminCreateUser(BaseModel):
+    email: EmailStr
+    full_name: str = Field(min_length=1, max_length=120)
+    role: str = Field(pattern="^(admin|rep)$")
+    # If omitted, the server generates a random temp password and returns
+    # it once in the response (admin shares it with the user out-of-band).
+    password: Optional[str] = Field(default=None, min_length=8, max_length=200)
+
+
 # ============================================================================
 # Public endpoints
 # ============================================================================
 
 @app.get("/api/health")
 def health():
-    cfg = auth.load_yaml_config()
     return {
         "status": "ok",
         "service": "foundry-backend",
         "version": "0.4.0",
-        "require_invitation": bool(cfg.get("require_invitation", True)),
     }
 
 
@@ -155,28 +156,11 @@ def index():
 
 # ============================================================================
 # Auth endpoints
+#
+# Self-registration is intentionally NOT exposed — accounts are created by
+# admins via POST /api/team/users (see below). For an internal tool with a
+# fixed roster, that's both simpler and safer than an invitation flow.
 # ============================================================================
-
-@app.post("/api/auth/register", response_model=AuthResponse, status_code=201)
-def register(payload: RegisterRequest):
-    email = payload.email.lower().strip()
-
-    # Already registered?
-    if db.find_user_by_email(email):
-        raise HTTPException(409, "An account with this email already exists. Try signing in instead.")
-
-    # Invitation gate
-    allowed, invitation = auth.is_invited(email)
-    if not allowed:
-        raise HTTPException(403, "This email isn't on the invitation list. Contact your admin to be invited.")
-
-    role = (invitation or {}).get("role") or auth.load_yaml_config().get("default_role", "rep")
-    name = payload.full_name.strip() or (invitation or {}).get("name") or email.split("@")[0]
-
-    user = auth.create_user(email=email, full_name=name, password=payload.password, role=role)
-    token = auth.create_access_token(user["id"], user["email"], user["role"])
-    return {"token": token, "user": auth.CurrentUser(**user)}
-
 
 @app.post("/api/auth/login", response_model=AuthResponse)
 def login(payload: LoginRequest):
@@ -346,25 +330,8 @@ def distinct_values(field: str, user: auth.CurrentUser = Depends(auth.current_us
 
 @app.get("/api/team")
 def list_team(user: auth.CurrentUser = Depends(auth.require_admin)):
-    """Admin only — list all registered users + invitation roster."""
-    users = db.list_users()
-    cfg = auth.load_yaml_config()
-    invited = cfg.get("invited") or []
-    invited_emails = {(i.get("email") or "").strip().lower() for i in invited}
-    registered_emails = {u["email"].lower() for u in users}
-    pending = [
-        {"email": (i.get("email") or "").strip().lower(),
-         "name": i.get("name") or "",
-         "role": i.get("role") or "rep"}
-        for i in invited
-        if (i.get("email") or "").strip().lower() not in registered_emails
-    ]
-    return {
-        "users": users,
-        "invited_emails": sorted(invited_emails),
-        "pending_invitations": pending,
-        "require_invitation": bool(cfg.get("require_invitation", True)),
-    }
+    """Admin only — list all registered users."""
+    return {"users": db.list_users()}
 
 
 class TeamMemberToggle(BaseModel):
@@ -378,6 +345,49 @@ def set_active(payload: TeamMemberToggle, user: auth.CurrentUser = Depends(auth.
         raise HTTPException(400, "You can't deactivate yourself.")
     db.set_user_active(payload.user_id, payload.is_active)
     return {"ok": True}
+
+
+@app.post("/api/team/users", status_code=201)
+def admin_create_user(
+    payload: AdminCreateUser,
+    user: auth.CurrentUser = Depends(auth.require_admin),
+):
+    """Admin creates a new account directly. If the admin doesn't supply a
+    password, we generate a temp one and return it ONCE so the admin can
+    pass it on to the user out-of-band. The user changes it later via the
+    Profile screen."""
+    email = payload.email.lower().strip()
+    if db.find_user_by_email(email):
+        raise HTTPException(409, "An account with this email already exists.")
+    generated = payload.password is None
+    password = payload.password or auth.generate_temp_password()
+    new_user = auth.create_user(
+        email=email,
+        full_name=payload.full_name.strip(),
+        password=password,
+        role=payload.role,
+    )
+    return {
+        "user": new_user,
+        # Only echo the password when WE generated it (admin won't have it
+        # otherwise). If the admin supplied one, they already know it.
+        "temporary_password": password if generated else None,
+    }
+
+
+@app.post("/api/team/users/{user_id}/reset-password")
+def admin_reset_password(
+    user_id: str,
+    user: auth.CurrentUser = Depends(auth.require_admin),
+):
+    """Admin generates a fresh temp password for an existing user. Returned
+    once. User should change it on their next login via Profile."""
+    target = db.get_user(user_id)
+    if not target:
+        raise HTTPException(404, "User not found.")
+    new_password = auth.generate_temp_password()
+    auth.admin_set_password(user_id, new_password)
+    return {"user_id": user_id, "temporary_password": new_password}
 
 
 @app.delete("/api/pos")

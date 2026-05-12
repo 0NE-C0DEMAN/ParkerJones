@@ -7,7 +7,8 @@
   const { Card, CardHeader, Segmented, Button, Icon, Badge, Field, Input } = window.App;
   const { useLocalStorage } = window.App.hooks;
 
-  function SettingsView({ onClearLedger, recordCount, pushToast, backendOnline = true }) {
+  function SettingsView({ onClearLedger, recordCount, pushToast, backendOnline = true, user }) {
+    const isAdmin = user?.role === 'admin';
     const [keyInput, setKeyInput] = useState(window.App.config.getApiKey());
     const [keyDirty, setKeyDirty] = useState(false);
     const [keyVisible, setKeyVisible] = useState(false);
@@ -57,8 +58,8 @@
        <div className="settings-grid">
         <Card noPadding className="mb-0">
           <CardHeader
-            title="OpenRouter API"
-            subtitle="Used for the LLM extraction. Stored in your browser only."
+            title="LLM provider"
+            subtitle="Used for PDF extraction. Optional per-user override of the default key."
             icon={<Icon name="sparkles" size={12} />}
             actions={
               <Badge tone={testResult === 'ok' ? 'success' : testResult === 'fail' ? 'danger' : isUsingDefault ? 'warning' : 'success'} dot>
@@ -76,7 +77,7 @@
                     value={keyInput}
                     onChange={(v) => { setKeyInput(v); setKeyDirty(true); }}
                     onBlur={saveKey}
-                    placeholder="sk-or-v1-..."
+                    placeholder="AIza...  or  sk-or-v1-..."
                     style={{ fontFamily: 'JetBrains Mono', fontSize: 12 }}
                   />
                 </div>
@@ -99,7 +100,7 @@
                 </Button>
               </div>
               <span className="text-sm text-muted mt-2">
-                Keys persist locally via <code style={{ background: 'var(--bg-subtle)', padding: '1px 4px', borderRadius: 3 }}>localStorage</code>. Get a key at <a href="https://openrouter.ai/keys" target="_blank" rel="noopener" style={{ color: 'var(--accent)' }}>openrouter.ai/keys</a>.
+                Per-user override stored in your browser's <code style={{ background: 'var(--bg-subtle)', padding: '1px 4px', borderRadius: 3 }}>localStorage</code>. Empty falls back to the shared key your admin configured. Get a key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style={{ color: 'var(--accent)' }}>Google AI Studio</a> (Gemini) or <a href="https://openrouter.ai/keys" target="_blank" rel="noopener" style={{ color: 'var(--accent)' }}>openrouter.ai/keys</a>.
               </span>
             </Field>
           </div>
@@ -126,7 +127,7 @@
         <Card noPadding className="mb-0">
           <CardHeader
             title="Workflow"
-            subtitle="How extracted POs become Excel rows."
+            subtitle="How extracted POs become ledger rows."
             icon={<Icon name="sliders" size={12} />}
           />
           <div className="settings-section">
@@ -139,53 +140,55 @@
                 <Toggle checked={!autoConfirm} onChange={(v) => setAutoConfirm(!v)} />
               </div>
             </div>
-            <div className="settings-row">
-              <div>
-                <div className="settings-label">Excel destination</div>
-                <div className="settings-help">Excel exports are delivered as browser downloads.</div>
-              </div>
-              <div className="settings-control">
-                <Badge tone="default">Browser download</Badge>
-              </div>
-            </div>
           </div>
         </Card>
 
         <Card noPadding className="mb-0">
           <CardHeader
             title="Ledger data"
-            subtitle="Your local PO history."
+            subtitle="Shared PO history across the team."
             icon={<Icon name="rows" size={12} />}
           />
           <div className="settings-section">
             <div className="settings-row">
               <div>
-                <div className="settings-label">Stored locally</div>
-                <div className="settings-help">{recordCount} PO{recordCount === 1 ? '' : 's'} in browser storage. Cleared if you reset the browser.</div>
+                <div className="settings-label">Stored in the cloud database</div>
+                <div className="settings-help">
+                  {recordCount} PO{recordCount === 1 ? '' : 's'} visible to your team. Persists across browsers and devices.
+                </div>
               </div>
-              <div className="settings-control">
-                {confirmClear ? (
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="ghost" onClick={() => setConfirmClear(false)}>Cancel</Button>
-                    <Button size="sm" variant="danger" iconLeft="trash" onClick={() => { onClearLedger(); setConfirmClear(false); }}>
-                      Clear all data
+              {isAdmin && (
+                <div className="settings-control">
+                  {confirmClear ? (
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="ghost" onClick={() => setConfirmClear(false)}>Cancel</Button>
+                      <Button size="sm" variant="danger" iconLeft="trash" onClick={() => { onClearLedger(); setConfirmClear(false); }}>
+                        Clear all data
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button size="sm" variant="danger" iconLeft="trash" onClick={() => setConfirmClear(true)} disabled={recordCount === 0}>
+                      Clear ledger
                     </Button>
-                  </div>
-                ) : (
-                  <Button size="sm" variant="danger" iconLeft="trash" onClick={() => setConfirmClear(true)} disabled={recordCount === 0}>
-                    Clear ledger
-                  </Button>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
             </div>
+            {!isAdmin && (
+              <div className="settings-help" style={{ marginTop: 8 }}>
+                <Icon name="info" size={11} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+                Only admins can clear or modify other reps' entries. You can delete your own POs from the Repository.
+              </div>
+            )}
           </div>
         </Card>
 
        </div>
         <div className="text-sm text-muted text-center" style={{ marginTop: 12, fontSize: 11 }}>
-          Foundry · v0.3 · Backend: <span style={{ color: backendOnline ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>
-            {backendOnline ? 'connected' : 'offline'}
-          </span> ({(window.App?.backend?.BASE ?? 'localhost:8503') || window.location.host})
+          Foundry · v0.4 ·{' '}
+          <span style={{ color: backendOnline ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>
+            {backendOnline ? 'Connected' : 'Offline'}
+          </span>
         </div>
       </div>
     );

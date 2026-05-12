@@ -1,7 +1,10 @@
 /* ==========================================================================
-   AuthView.jsx — Combined Login + Register screen. Shown when no JWT is
-   present. On successful auth, calls onAuthenticated(user) so App.jsx can
-   transition into the workspace.
+   AuthView.jsx — Login screen. Shown when no JWT is present. On successful
+   auth, calls onAuthenticated(user) so App.jsx can transition into the
+   workspace.
+
+   Self-registration is intentionally not exposed — admins create accounts
+   from the Team page (POST /api/team/users). Reps just sign in.
    ========================================================================== */
 (() => {
   'use strict';
@@ -9,8 +12,6 @@
   const { Icon, BrandMark, Button, Field, Input } = window.App;
 
   function AuthView({ onAuthenticated }) {
-    const [mode, setMode] = useState('login'); // 'login' | 'register'
-
     return (
       <div className="auth-shell">
         <div className="auth-card">
@@ -24,32 +25,16 @@
             </div>
           </div>
 
-          <div className="auth-tabs">
-            <button
-              type="button"
-              className={mode === 'login' ? 'active' : ''}
-              onClick={() => setMode('login')}
-            >Sign in</button>
-            <button
-              type="button"
-              className={mode === 'register' ? 'active' : ''}
-              onClick={() => setMode('register')}
-            >Create account</button>
-          </div>
-
-          {mode === 'login'
-            ? <LoginForm onAuthenticated={onAuthenticated} switchToRegister={() => setMode('register')} />
-            : <RegisterForm onAuthenticated={onAuthenticated} switchToLogin={() => setMode('login')} />
-          }
+          <LoginForm onAuthenticated={onAuthenticated} />
         </div>
         <div className="auth-footnote">
-          Foundry · v0.4 · Internal sales workspace · Backend on <code>{((window.App?.backend?.BASE ?? 'http://127.0.0.1:8503') || window.location.host).replace(/^https?:\/\//, '')}</code>
+          Foundry · v0.4 · Internal sales workspace
         </div>
       </div>
     );
   }
 
-  function LoginForm({ onAuthenticated, switchToRegister }) {
+  function LoginForm({ onAuthenticated }) {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [busy, setBusy] = useState(false);
@@ -107,95 +92,9 @@
           {busy ? 'Signing in...' : 'Sign in'}
         </Button>
 
-        <div className="auth-switch">
-          New to Foundry? <button type="button" onClick={switchToRegister}>Create an account</button>
-        </div>
-      </form>
-    );
-  }
-
-  function RegisterForm({ onAuthenticated, switchToLogin }) {
-    const [email, setEmail] = useState('');
-    const [name, setName] = useState('');
-    const [password, setPassword] = useState('');
-    const [busy, setBusy] = useState(false);
-    const [error, setError] = useState(null);
-
-    const submit = async (e) => {
-      e.preventDefault();
-      setError(null);
-      if (password.length < 8) {
-        setError('Password must be at least 8 characters.');
-        return;
-      }
-      setBusy(true);
-      try {
-        const { user } = await window.App.auth.register({ email, full_name: name, password });
-        onAuthenticated(user);
-      } catch (err) {
-        setError(err.message || 'Registration failed.');
-      } finally {
-        setBusy(false);
-      }
-    };
-
-    return (
-      <form onSubmit={submit} className="auth-form">
-        <Field label="Email">
-          <Input
-            type="email"
-            value={email}
-            onChange={setEmail}
-            placeholder="you@company.com"
-            autoComplete="email"
-            required
-            autoFocus
-          />
-        </Field>
-        <Field label="Full name">
-          <Input
-            value={name}
-            onChange={setName}
-            placeholder="Jane Doe"
-            autoComplete="name"
-            required
-          />
-        </Field>
-        <Field
-          label="Password"
-          hint="At least 8 characters"
-        >
-          <Input
-            type="password"
-            value={password}
-            onChange={setPassword}
-            placeholder="••••••••"
-            autoComplete="new-password"
-            required
-          />
-        </Field>
-
-        {error && <div className="auth-error"><Icon name="alert-circle" size={13} />{error}</div>}
-
-        <div className="auth-info">
+        <div className="auth-info" style={{ marginTop: 14 }}>
           <Icon name="info" size={13} />
-          <span>Your email must be on the invitation list (in <code>users.yaml</code>) before you can register. Ask your admin if you don't have access.</span>
-        </div>
-
-        <Button
-          variant="primary"
-          size="lg"
-          type="submit"
-          loading={busy}
-          disabled={busy || !email || !name || !password}
-          className="w-full"
-          style={{ width: '100%' }}
-        >
-          {busy ? 'Creating account...' : 'Create account'}
-        </Button>
-
-        <div className="auth-switch">
-          Already have an account? <button type="button" onClick={switchToLogin}>Sign in</button>
+          <span>Accounts are created by your admin. If you don't have one yet, ask them to add you on the Team page.</span>
         </div>
       </form>
     );

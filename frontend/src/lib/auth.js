@@ -57,16 +57,6 @@
     return res.json();
   }
 
-  async function register({ email, full_name, password }) {
-    const data = await _request('/api/auth/register', {
-      method: 'POST',
-      body: JSON.stringify({ email, full_name, password }),
-    });
-    setToken(data.token);
-    setCachedUser(data.user);
-    return data;
-  }
-
   async function login({ email, password }) {
     const data = await _request('/api/auth/login', {
       method: 'POST',
@@ -137,7 +127,7 @@
 
   window.App = window.App || {};
   window.App.auth = {
-    register, login, logout, fetchMe, updateProfile, changePassword,
+    login, logout, fetchMe, updateProfile, changePassword,
     getToken, getCachedUser, setCachedUser, clearSession,
     authHeader, isAuthenticated,
   };

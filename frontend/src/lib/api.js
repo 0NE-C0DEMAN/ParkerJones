@@ -199,6 +199,26 @@
     });
   }
 
+  /** Admin: create a new user. Returns { user, temporary_password? }.
+   *  If `password` is omitted, the server generates one and returns it
+   *  exactly once in `temporary_password`. */
+  async function adminCreateUser({ email, full_name, role, password }) {
+    const body = { email, full_name, role };
+    if (password) body.password = password;
+    return request('/api/team/users', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** Admin: generate a fresh temp password for a user. Returns
+   *  { user_id, temporary_password }. */
+  async function adminResetPassword(user_id) {
+    return request(`/api/team/users/${encodeURIComponent(user_id)}/reset-password`, {
+      method: 'POST',
+    });
+  }
+
   window.App = window.App || {};
   window.App.backend = {
     BASE,
@@ -220,5 +240,7 @@
     getDistinct,
     listTeam,
     setUserActive,
+    adminCreateUser,
+    adminResetPassword,
   };
 })();

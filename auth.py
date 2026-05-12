@@ -4,64 +4,61 @@ auth.py — Authentication primitives for Foundry.
 Responsibilities:
     - Hash + verify passwords (bcrypt)
     - Issue + verify JWT tokens
-    - Load and reload the YAML invitation list
-    - Look up + create + update users in SQLite
-    - FastAPI dependency that injects the current user from the Authorization header
+    - Create + update + look up users in SQLite via db.*
+    - FastAPI dependencies that inject the current user / require admin
+
+Configuration is env-driven now (no YAML invitation list):
+    FOUNDRY_JWT_SECRET   — signing secret for JWTs (REQUIRED in prod)
+    FOUNDRY_SESSION_DAYS — token lifetime in days (default 7)
 """
 from __future__ import annotations
 
 import os
+import secrets
+import sys
 import uuid
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Optional
 
 import bcrypt
 import jwt
-import yaml
 from fastapi import Depends, Header, HTTPException, status
 from pydantic import BaseModel
 
 import db
 
-ROOT = Path(__file__).parent
-USERS_YAML = ROOT / "users.yaml"
-
 
 # -----------------------------------------------------------------------------
-# YAML invitation list
+# Configuration (env-driven)
 # -----------------------------------------------------------------------------
-def load_yaml_config() -> dict:
-    if not USERS_YAML.exists():
-        return {"invited": [], "require_invitation": True, "default_role": "rep",
-                "session_days": 7, "jwt_secret": "dev-secret-change-me"}
-    with USERS_YAML.open("r", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
-
-
-def is_invited(email: str) -> tuple[bool, dict | None]:
-    """Return (allowed, invitation_record). When require_invitation is False,
-    everyone is allowed and the record is None."""
-    cfg = load_yaml_config()
-    if not cfg.get("require_invitation", True):
-        return True, None
-    email_norm = email.strip().lower()
-    for inv in cfg.get("invited") or []:
-        if (inv.get("email") or "").strip().lower() == email_norm:
-            return True, inv
-    return False, None
-
-
 def jwt_secret() -> str:
-    return os.environ.get("FOUNDRY_JWT_SECRET") or load_yaml_config().get(
-        "jwt_secret", "dev-secret-change-me"
-    )
+    """Returns the JWT signing secret. In production this MUST be set via
+    FOUNDRY_JWT_SECRET; we fall back to a generated dev secret with a loud
+    warning so local development still works out of the box."""
+    val = os.environ.get("FOUNDRY_JWT_SECRET")
+    if val:
+        return val
+    # Last-resort dev fallback — print once so it's visible in logs.
+    global _dev_secret_warned
+    if not _dev_secret_warned:
+        print(
+            "[auth] WARNING: FOUNDRY_JWT_SECRET not set — using an ephemeral "
+            "dev secret. All sessions will be invalidated on restart. Set the "
+            "secret in your env or .streamlit/secrets.toml for stable sessions.",
+            file=sys.stderr,
+        )
+        _dev_secret_warned = True
+    return _DEV_JWT_SECRET
+
+
+_DEV_JWT_SECRET = secrets.token_hex(32)  # only used if env var is missing
+_dev_secret_warned = False
 
 
 def session_days() -> int:
     try:
-        return int(load_yaml_config().get("session_days", 7))
-    except Exception:
+        return int(os.environ.get("FOUNDRY_SESSION_DAYS") or 7)
+    except ValueError:
         return 7
 
 
@@ -82,6 +79,12 @@ def verify_password(plain: str, hashed: str) -> bool:
         return bcrypt.checkpw(pw, hashed.encode("utf-8"))
     except Exception:
         return False
+
+
+def generate_temp_password(length: int = 12) -> str:
+    """Random URL-safe token used as the one-time password an admin hands
+    to a new user. ~9 bytes of entropy = 12 base64url chars."""
+    return secrets.token_urlsafe(max(6, length * 3 // 4))[:length]
 
 
 # -----------------------------------------------------------------------------
@@ -141,14 +144,24 @@ def authenticate(email: str, password: str) -> Optional[dict]:
 
 
 def update_profile(user_id: str, full_name: str | None = None) -> dict | None:
-    return _strip_pw(db.update_user(user_id, full_name=full_name)) if db.update_user(user_id, full_name=full_name) else None
+    updated = db.update_user(user_id, full_name=full_name)
+    return _strip_pw(updated) if updated else None
 
 
 def change_password(user_id: str, current_password: str, new_password: str) -> bool:
+    """User-driven self-service password change (requires current password)."""
     user = db.get_user(user_id)
     if not user:
         return False
     if not verify_password(current_password, user.get("password_hash") or ""):
+        return False
+    db.set_user_password(user_id, hash_password(new_password))
+    return True
+
+
+def admin_set_password(user_id: str, new_password: str) -> bool:
+    """Admin-driven password reset (no current-password check)."""
+    if not db.get_user(user_id):
         return False
     db.set_user_password(user_id, hash_password(new_password))
     return True
