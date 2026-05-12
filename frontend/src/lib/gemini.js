@@ -338,6 +338,14 @@ OUTPUT SCHEMA
     const keys = (Array.isArray(apiKeys) && apiKeys.length) ? apiKeys : (apiKey ? [apiKey] : []);
     if (!keys.length) throw new Error('No Gemini API key configured.');
 
+    // Force gemini-2.5-flash for vision. Flash-Lite produces empty / near-
+    // empty extractions for industrial POs — its OCR is too weak. If the
+    // rep has Lite selected for text, we still upgrade to Flash for the
+    // vision call. Pro is a valid override; anything else gets promoted.
+    const visionModel = (!model || model === 'gemini-2.5-flash-lite')
+      ? 'gemini-2.5-flash'
+      : model;
+
     const parts = [{ text: 'Extract the purchase order data from these page images. Follow the schema in the system prompt exactly.' }];
     for (const url of pageImages) {
       // Strip the data: prefix to get raw base64
@@ -358,7 +366,7 @@ OUTPUT SCHEMA
     };
 
     return _withFallback(keys, async (k) => {
-      const text = await _callGemini(model || 'gemini-2.5-flash', k, body, signal);
+      const text = await _callGemini(visionModel, k, body, signal);
       return _parseJson(text);
     });
   }

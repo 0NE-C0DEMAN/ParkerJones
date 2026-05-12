@@ -90,6 +90,12 @@
    * vision-fallback path when text extraction returns nothing useful
    * (= scanned PDF).
    *
+   * scale=2.0 (≈144 DPI) is empirically the sweet spot for industrial
+   * POs: sharp enough that Gemini Flash reads small line-item digits
+   * reliably, while keeping the base64 payload under ~250KB per page.
+   * Lower (1.0–1.6) breaks vision on small fonts; higher (3.0+) blows
+   * token budget without measurable accuracy gain.
+   *
    * By default renders pages 1..maxPages. For chunked extraction of long
    * documents, pass `startPage` and `endPage` (1-indexed, inclusive) to
    * render a specific range. `maxPages` still acts as a safety cap on the
@@ -97,7 +103,7 @@
    */
   async function renderPagesToImages(
     file,
-    { maxPages = 30, startPage = 1, endPage = null, scale = 1.6, onPage } = {}
+    { maxPages = 30, startPage = 1, endPage = null, scale = 2.0, onPage } = {}
   ) {
     ensureWorker();
     const buf = await file.arrayBuffer();

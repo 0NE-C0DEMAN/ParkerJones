@@ -1,21 +1,21 @@
 /* ==========================================================================
    extractor (window.App.api) — PO extraction pipeline.
 
-   STRATEGY: text via server-side pdfplumber.
+   STRATEGY: text-first, vision as automatic fallback for scanned PDFs.
 
+   For MACHINE-READABLE PDFs (almost everything Parker handles):
      1. Get page count of the PDF (cheap, client-side).
      2. POST the PDF to /api/extract/parse — server parses the first
         MAX_EXTRACT_PAGES pages with pdfplumber.extract_text(layout=True)
         plus a last-wins char dedup pass (handles overlaid template text
         on Ariba-style PDFs).
-     3. Send the resulting text to the LLM (Gemini text endpoint).
-     4. Normalize and return.
+     3. If the resulting text is dense enough (heuristic: > 60 chars per
+        page), send it to the LLM (Gemini text endpoint) and we're done.
 
-   Vision was tried earlier but Gemini 2.5 Flash-Lite was returning empty
-   extractions for our industrial POs. The pdfplumber + dedup + improved
-   prompt combo is reliable: layout columns are preserved by the parser,
-   overlaid placeholder text is stripped, and the text token cost is
-   roughly 10× lower than vision.
+   For SCANNED / image-only PDFs:
+     1. Server text extraction returns near-empty text.
+     2. Fall through to vision: render the first MAX_EXTRACT_PAGES pages
+        as PNG via pdf.js at high DPI, send to gemini-2.5-flash vision.
 
    Pages 4+ on industrial PO templates are pure Standard Terms & Conditions
    boilerplate — never useful for extraction — so we cap at MAX_EXTRACT_PAGES.
@@ -31,12 +31,24 @@
   // same cap independently.
   const MAX_EXTRACT_PAGES = 3;
 
+  // Threshold (chars per parsed page) below which we declare the PDF to be
+  // image-only / scanned and switch to the vision path. Real industrial
+  // POs land in the 2K–8K chars/page range; a scanned PDF returns ~0–40.
+  // 60 leaves comfortable headroom for "mostly image with a sliver of
+  // header text" hybrids.
+  const TEXT_DENSITY_THRESHOLD = 60;
+
   // Per-call retry policy for transient errors (429, 5xx, network blips).
   const RETRY_ATTEMPTS = 2;
   const RETRY_BASE_MS = 1500;
 
   /**
-   * Run the extraction pipeline on a file. Server-side pdfplumber → text LLM.
+   * Run the extraction pipeline on a file.
+   *
+   * Routing: machine-readable PDFs go through the server-side pdfplumber
+   * text path; scanned/image-only PDFs (low text density after parsing)
+   * automatically fall through to the vision path on gemini-2.5-flash.
+   *
    * @param {File} file
    * @param {{ onStage?: (stage: string, label?: string) => void }} opts
    */
@@ -57,7 +69,8 @@
 
     const warnings = [];
 
-    // Server parses with pdfplumber layout=True + last-wins char dedup.
+    // --- 1. Try server-side text extraction (pdfplumber) first ---
+    //
     // Falls back to client-side pdf.js text if the server is unreachable.
     let pages;
     let pageCountFull = pageCount;
@@ -67,13 +80,6 @@
       pages = Array.isArray(parsed.pages) ? parsed.pages : [parsed.text || ''];
       pageCountFull = parsed.page_count_full ?? pageCount;
       parsedPageCount = parsed.page_count ?? pages.length;
-      if (parsed.truncated) {
-        onStage?.('extracting',
-          `Parsed pages 1–${parsedPageCount} of ${pageCountFull} (rest is T&Cs) — extracting fields`);
-      } else {
-        onStage?.('extracting',
-          `Extracting fields with ${provider === 'google' ? 'Gemini' : 'Claude/GPT'}`);
-      }
     } catch (err) {
       console.warn('Foundry: server parse failed, falling back to pdf.js text', err);
       warnings.push(
@@ -86,18 +92,72 @@
       parsedPageCount = pages.length;
     }
 
-    const fullText = pages
-      .map((p, i) => `--- Page ${i + 1} ---\n${p}`)
-      .join('\n\n');
+    // --- 2. Decide: text path or vision path? ---
+    //
+    // Density heuristic: scanned PDFs produce ~0–40 chars per page from
+    // pdfplumber; real text PDFs produce thousands. Anything below
+    // TEXT_DENSITY_THRESHOLD chars/page → vision.
+    const totalTextChars = pages.reduce((sum, p) => sum + (p || '').trim().length, 0);
+    const charsPerPage = parsedPageCount > 0 ? totalTextChars / parsedPageCount : 0;
+    const isScanned = parsedPageCount > 0 && charsPerPage < TEXT_DENSITY_THRESHOLD;
 
-    const raw = await _callWithRetry(
-      () => client.extractWithLLM(fullText, { apiKeys, model }),
-      { label: 'text extraction' }
-    );
+    let raw;
+    let extractionMethod = 'text';
+
+    if (isScanned) {
+      // ---- VISION PATH ----
+      // Force gemini-2.5-flash for vision — Flash-Lite is too weak at OCR.
+      // For OpenRouter the rep's selected model carries through (Claude
+      // Sonnet / Haiku / GPT — all vision-capable).
+      onStage?.('extracting',
+        `Scanned PDF (≤${Math.round(charsPerPage)} chars/pg) — using vision on ${MAX_EXTRACT_PAGES} page${MAX_EXTRACT_PAGES === 1 ? '' : 's'}`);
+
+      let rendered;
+      try {
+        rendered = await window.App.pdfParser.renderPagesToImages(file, {
+          maxPages: MAX_EXTRACT_PAGES,
+          scale: 2.0,        // ~144 DPI — sharp enough for fine print
+        });
+      } catch (err) {
+        throw new Error(`Couldn't render PDF pages for vision: ${err.message}`);
+      }
+      if (!rendered.images || rendered.images.length === 0) {
+        throw new Error('Could not render any pages from this PDF.');
+      }
+
+      raw = await _callWithRetry(
+        () => client.extractWithVision(rendered.images, { apiKeys, model }),
+        { label: 'vision extraction' }
+      );
+      extractionMethod = 'vision';
+      warnings.push(
+        `This PDF appears to be scanned (no extractable text layer). ` +
+        `Vision extraction was used on pages 1–${rendered.images.length}; ` +
+        `please double-check totals and part numbers.`
+      );
+    } else {
+      // ---- TEXT PATH ----
+      const fullText = pages
+        .map((p, i) => `--- Page ${i + 1} ---\n${p}`)
+        .join('\n\n');
+
+      if (parsedPageCount < pageCountFull) {
+        onStage?.('extracting',
+          `Parsed pages 1–${parsedPageCount} of ${pageCountFull} (rest is T&Cs) — extracting fields`);
+      } else {
+        onStage?.('extracting',
+          `Extracting fields with ${provider === 'google' ? 'Gemini 2.5 Flash' : 'Claude/GPT'}`);
+      }
+
+      raw = await _callWithRetry(
+        () => client.extractWithLLM(fullText, { apiKeys, model }),
+        { label: 'text extraction' }
+      );
+    }
 
     onStage?.('validating', 'Validating');
     const normalized = normalize(raw);
-    normalized.extraction_method = 'text';
+    normalized.extraction_method = extractionMethod;
 
     // If we trimmed pages, note that the rep should glance past page 3
     // in their copy of the PDF in case a line item lives there.
