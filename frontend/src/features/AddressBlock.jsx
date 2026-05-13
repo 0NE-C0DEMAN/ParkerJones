@@ -5,8 +5,22 @@
   'use strict';
   const { confidenceFor } = window.App.utils;
 
+  /**
+   * Generic party card. Two flavours:
+   *   - WITH name slot   (Customer / Supplier) — schema stores company name
+   *     in its own field (customer / supplier), with separate *_address.
+   *   - WITHOUT name slot (Bill To / Ship To) — schema stores everything
+   *     as ONE multi-line string in bill_to / ship_to. The first line of
+   *     the textarea is the company name.
+   *
+   * Callers that need the name slot pass `onChange` (the name handler).
+   * Callers that don't (Bill To / Ship To) omit it — we render only the
+   * address textarea. This used to render an orphan name input whose
+   * value was silently dropped on save.
+   */
   function PartyField({ icon, label, value, onChange, addressValue, onAddressChange, addressPlaceholder, confidence, autocompleteField, codeValue, onCodeChange, codePlaceholder }) {
     const { Field, Input, Textarea, Confidence, Icon, Autocomplete } = window.App;
+    const hasNameSlot = typeof onChange === 'function';
     return (
       <div className="card" style={{ padding: 14 }}>
         <div className="flex items-center gap-2 mb-3">
@@ -16,21 +30,23 @@
           </div>
           {confidence && <Confidence level={confidence} />}
         </div>
-        {autocompleteField ? (
-          <Autocomplete
-            field={autocompleteField}
-            value={value}
-            onChange={onChange}
-            placeholder={`${label} name`}
-            className="mb-2"
-          />
-        ) : (
-          <Input
-            value={value}
-            onChange={onChange}
-            placeholder={`${label} name`}
-            className="mb-2"
-          />
+        {hasNameSlot && (
+          autocompleteField ? (
+            <Autocomplete
+              field={autocompleteField}
+              value={value}
+              onChange={onChange}
+              placeholder={`${label} name`}
+              className="mb-2"
+            />
+          ) : (
+            <Input
+              value={value}
+              onChange={onChange}
+              placeholder={`${label} name`}
+              className="mb-2"
+            />
+          )
         )}
         {onCodeChange !== undefined && (
           <Input
@@ -45,7 +61,7 @@
           value={addressValue}
           onChange={onAddressChange}
           placeholder={addressPlaceholder}
-          rows={3}
+          rows={hasNameSlot ? 3 : 4}
         />
       </div>
     );
@@ -85,21 +101,17 @@
         <PartyField
           icon="map-pin"
           label="Bill To"
-          value={data.bill_to_name || ''}
-          onChange={update('bill_to_name')}
           addressValue={data.bill_to}
           onAddressChange={update('bill_to')}
-          addressPlaceholder="Billing address"
+          addressPlaceholder="Where invoices should be mailed (multi-line)"
           confidence={confidenceFor(data, 'bill_to')}
         />
         <PartyField
           icon="truck"
           label="Ship To"
-          value={data.ship_to_name || ''}
-          onChange={update('ship_to_name')}
           addressValue={data.ship_to}
           onAddressChange={update('ship_to')}
-          addressPlaceholder="Shipping address"
+          addressPlaceholder="Where goods are delivered (multi-line)"
           confidence={confidenceFor(data, 'ship_to')}
         />
       </div>

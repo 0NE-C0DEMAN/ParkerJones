@@ -919,12 +919,18 @@ table { border-collapse: collapse; width: 100%; }
 }
 .po-total-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); font-weight: 600; margin-bottom: 6px; text-align: right; }
 
-/* ===== Review layout (form + PDF preview side-by-side) ===== */
+/* ===== Review layout (form + PDF preview side-by-side) =====
+   The PDF preview column was previously hard-pinned to 420px, which on
+   a 1920px monitor left the form occupying ~75% of the canvas while
+   the PDF was squeezed into a sliver. Switching to a 1.4 / 1 ratio
+   (with a min on the PDF) gives the rep a much larger source view —
+   they can actually read line-item digits and addresses on the PDF —
+   while the form still has plenty of room for its 3-column field grid. */
 .review-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 420px;
+  grid-template-columns: minmax(0, 1.4fr) minmax(460px, 1fr);
   gap: 18px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .review-form-col { min-width: 0; }
@@ -933,14 +939,16 @@ table { border-collapse: collapse; width: 100%; }
   position: sticky;
   top: 12px;
   height: calc(100vh - var(--topbar-h) - 32px);
-  min-height: 400px;
+  min-height: 480px;
+  display: flex;
+  flex-direction: column;
 }
 
 @media (max-width: 1180px) {
   .review-layout { grid-template-columns: 1fr; }
   .review-pdf-col {
     position: static;
-    height: 360px;
+    height: 480px;
   }
 }
 

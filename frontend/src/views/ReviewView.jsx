@@ -45,6 +45,16 @@
     const isEdit = !!pending.isEdit;
     const duplicate = pending.duplicate;
 
+    // Reset the form when the rep navigates to a different PO without
+    // unmounting the view (e.g. clicking another row's edit button while
+    // already inside Review). Keyed off pending.id with a fallback to
+    // file/filename so newly extracted POs (no id yet) still trigger.
+    const formKey = pending?.id || pending?.file?.name || pending?.filename || '';
+    useEffect(() => {
+      setData(pending.data);
+       // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [formKey]);
+
     // Keep PO total in sync with line item amounts
     useEffect(() => {
       const newTotal = lineItemsTotal(data.line_items);

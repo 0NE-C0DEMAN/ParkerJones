@@ -47,9 +47,20 @@
             {filename || 'source'}
           </span>
           {method === 'vision' && (
-            <span className="badge badge-accent" style={{ flexShrink: 0 }}>
+            <span className="badge badge-accent" style={{ flexShrink: 0 }} title="Scanned PDF — extracted via Gemini vision">
               <Icon name="sparkles" size={10} />
               Vision
+            </span>
+          )}
+          {method === 'hybrid' && (
+            <span className="badge badge-accent" style={{ flexShrink: 0 }} title="Text + page images sent to Gemini together for layout grounding">
+              <Icon name="layers" size={10} />
+              Hybrid
+            </span>
+          )}
+          {method === 'text' && (
+            <span className="badge" style={{ flexShrink: 0, fontSize: 10, color: 'var(--text-subtle)' }} title="Text-only extraction (hybrid rendering unavailable)">
+              Text
             </span>
           )}
         </div>
