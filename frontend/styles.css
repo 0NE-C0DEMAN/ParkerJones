@@ -2050,11 +2050,16 @@ table { border-collapse: collapse; width: 100%; }
 }
 
 .data-table {
+  /* table-layout: auto lets the browser balance column widths against the
+     container's available space rather than forcing every column to its
+     min-width. Combined with the curated default-visible column set in
+     DataView.jsx, most monitors render without horizontal scroll. */
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 12px;
+  font-size: 11.5px;
   font-feature-settings: 'tnum';
+  table-layout: auto;
 }
 
 .data-table thead th {
@@ -2064,11 +2069,11 @@ table { border-collapse: collapse; width: 100%; }
   background: var(--bg-subtle);
   text-align: left;
   font-weight: 600;
-  font-size: 11px;
+  font-size: 10.5px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-muted);
-  padding: 8px 10px;
+  padding: 7px 9px;
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
 }
@@ -2076,13 +2081,18 @@ table { border-collapse: collapse; width: 100%; }
 .data-table thead th.col-num { text-align: right; }
 
 .data-table tbody td {
-  padding: 6px 10px;
+  padding: 5px 9px;
   border-bottom: 1px solid var(--border-subtle);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--text);
   vertical-align: middle;
+  /* max-width: 0 forces the cell to honour its column's natural share
+     of the table width and trigger text-overflow ellipsis. Without it
+     the cell will grow to fit its contents, blowing past the column
+     width and forcing horizontal scroll. */
+  max-width: 0;
 }
 
 .data-table tbody td.col-num {

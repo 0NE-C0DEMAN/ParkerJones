@@ -23,11 +23,28 @@
   // mode so headers-view and lines-view can hide different columns.
   const HIDDEN_COLS_KEY = (mode) => `foundry.dataview.hiddenCols.${mode}`;
 
+  // Default-hidden columns — chosen so the at-first-load table fits the
+  // viewport width without horizontal scroll. Reps add more via the
+  // Columns dropdown when they need them; their selection persists.
+  function defaultHidden(mode) {
+    if (mode === 'headers') {
+      return new Set([
+        'supplier_code', 'buyer_email', 'freight_terms', 'ship_via',
+        'fob_terms', 'quote_number', 'contract_number', 'ship_to', 'bill_to',
+      ]);
+    }
+    // line-items mode — keep the essentials visible only
+    return new Set(['payment_terms', 'buyer', 'status']);
+  }
+
   function loadHiddenCols(mode) {
     try {
       const v = window.localStorage.getItem(HIDDEN_COLS_KEY(mode));
-      return v ? new Set(JSON.parse(v)) : new Set();
-    } catch { return new Set(); }
+      // Only honour an explicitly-saved preference (even if empty).
+      // First-time visitors get the curated default.
+      if (v === null) return defaultHidden(mode);
+      return new Set(JSON.parse(v));
+    } catch { return defaultHidden(mode); }
   }
   function saveHiddenCols(mode, set) {
     try { window.localStorage.setItem(HIDDEN_COLS_KEY(mode), JSON.stringify([...set])); }
@@ -211,7 +228,11 @@
                     <th
                       key={c.key}
                       className={cn('sortable-header', c.numeric && 'col-num')}
-                      style={{ minWidth: c.width || 100 }}
+                      // `width` is a hint — the browser uses it for layout
+                      // but will shrink columns proportionally if the table
+                      // is narrower than the sum of all widths. minWidth
+                      // would force overflow, so we don't set it.
+                      style={{ width: c.width || 100 }}
                       onClick={() => handleSort(c.key)}
                       title={`Sort by ${c.label}`}
                     >
@@ -259,10 +280,12 @@
           const v = c.getter(row);
           const display = c.format ? c.format(v, row) : v;
           const isNum = c.numeric;
+          // No min/maxWidth here — the column header sets the column's
+          // share via `width`. The cell's max-width: 0 (in CSS) + ellipsis
+          // handles overflow without forcing the table wider than its
+          // container.
           const cellStyle = {
-            minWidth: c.width || 100,
-            maxWidth: c.max || 360,
-            ...(c.mono ? { fontFamily: 'JetBrains Mono', fontSize: 11.5 } : {}),
+            ...(c.mono ? { fontFamily: 'JetBrains Mono', fontSize: 11 } : {}),
           };
           if (c.key === 'status') {
             return (
