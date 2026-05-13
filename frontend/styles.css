@@ -112,7 +112,9 @@ table { border-collapse: collapse; width: 100%; }
   background: var(--bg);
 }
 
-/* Sidebar — fills the fixed app height, internal nav scrolls if needed */
+/* Sidebar — fills the fixed app height, internal nav scrolls if needed.
+   Collapsible: when .sidebar gets the .collapsed class, it narrows to
+   icon-only (~60px) and hides labels. Transition is animated. */
 .sidebar {
   width: var(--sidebar-w);
   flex-shrink: 0;
@@ -122,7 +124,49 @@ table { border-collapse: collapse; width: 100%; }
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+  position: relative;
+  transition: width 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
+.sidebar.collapsed {
+  width: 60px;
+}
+/* When collapsed, hide every textual element; keep icons + brand mark */
+.sidebar.collapsed .brand-text,
+.sidebar.collapsed .nav-item span,
+.sidebar.collapsed .nav-count,
+.sidebar.collapsed .nav-section-title,
+.sidebar.collapsed .user-info,
+.sidebar.collapsed .user-card svg {
+  display: none;
+}
+.sidebar.collapsed .sidebar-header { padding: 18px 0 14px; justify-content: center; }
+.sidebar.collapsed .sidebar-nav    { padding: 8px 6px; align-items: center; }
+.sidebar.collapsed .nav-item       { justify-content: center; padding: 9px 0; width: 44px; }
+.sidebar.collapsed .user-card      { justify-content: center; padding: 8px 0; }
+.sidebar.collapsed .user-avatar    { margin: 0; }
+
+/* Collapse toggle button — sits at the bottom-right of the sidebar edge,
+   chevron-left when expanded ("click to collapse"), chevron-right when
+   collapsed ("click to expand"). */
+.sidebar-collapse-btn {
+  position: absolute;
+  top: 18px;
+  right: -11px;
+  width: 22px;
+  height: 22px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  z-index: 20;
+  color: var(--text-muted);
+  box-shadow: var(--shadow-xs);
+  transition: color 100ms, background 100ms, border-color 100ms;
+}
+.sidebar-collapse-btn:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-light); }
+.sidebar-collapse-btn svg { transition: transform 200ms; }
+.sidebar.collapsed .sidebar-collapse-btn svg { transform: rotate(180deg); }
 
 .sidebar-header {
   padding: 18px 16px 14px;
@@ -299,9 +343,9 @@ table { border-collapse: collapse; width: 100%; }
 .content {
   flex: 1;
   padding: 18px 24px 24px;
-  max-width: 1320px;
+  /* No max-width / centering — every view fills the available width
+     so wide tables (Data view, Ledger, line items) can use it. */
   width: 100%;
-  margin: 0 auto;
 }
 
 /* ===== Buttons ===== */

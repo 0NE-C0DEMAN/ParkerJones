@@ -22,6 +22,21 @@
     const [bootState, setBootState] = useState('boot'); // 'boot' | 'auth' | 'app'
     const [user, setUser] = useState(null);
 
+    // Sidebar collapsed state — remembered across sessions so reps don't
+    // have to re-collapse every time they reload.
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+      try { return window.localStorage.getItem('foundry.sidebar.collapsed') === '1'; }
+      catch { return false; }
+    });
+    const toggleSidebar = useCallback(() => {
+      setSidebarCollapsed((curr) => {
+        const next = !curr;
+        try { window.localStorage.setItem('foundry.sidebar.collapsed', next ? '1' : '0'); }
+        catch { /* localStorage unavailable */ }
+        return next;
+      });
+    }, []);
+
     const [view, setView] = useState('upload');
     const [pending, setPending] = useState(null);
     const [repository, setRepository] = useState([]);
@@ -435,6 +450,8 @@
           pendingCount={pending ? 1 : 0}
           user={user}
           onSignOut={handleSignOut}
+          collapsed={sidebarCollapsed}
+          onToggleCollapsed={toggleSidebar}
         />
         <main className="main">
           <TopBar title={titleFor} subtitle={subtitleFor} actions={topbarActions} />

@@ -7,7 +7,7 @@
   const { cn } = window.App.utils;
   const { Icon, BrandMark } = window.App;
 
-  function Sidebar({ activeView, onNavigate, repositoryCount, pendingCount, user, onSignOut }) {
+  function Sidebar({ activeView, onNavigate, repositoryCount, pendingCount, user, onSignOut, collapsed, onToggleCollapsed }) {
     const [menuOpen, setMenuOpen] = useState(false);
     const menuRef = useRef(null);
 
@@ -27,7 +27,18 @@
       .toUpperCase();
 
     return (
-      <aside className="sidebar">
+      <aside className={'sidebar' + (collapsed ? ' collapsed' : '')}>
+        {onToggleCollapsed && (
+          <button
+            type="button"
+            className="sidebar-collapse-btn"
+            onClick={onToggleCollapsed}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            <Icon name="chevron-left" size={13} />
+          </button>
+        )}
         <div className="sidebar-header">
           <div className="brand-mark">
             <BrandMark size={16} />
@@ -120,8 +131,10 @@
   }
 
   function NavItem({ icon, label, active, onClick, count, badge }) {
+    // `title` gives a tooltip when the sidebar is collapsed (icon-only mode)
+    // so reps still know what each icon is.
     return (
-      <div className={cn('nav-item', active && 'active')} onClick={onClick}>
+      <div className={cn('nav-item', active && 'active')} onClick={onClick} title={label}>
         <Icon name={icon} size={16} />
         <span>{label}</span>
         {badge !== undefined && (
