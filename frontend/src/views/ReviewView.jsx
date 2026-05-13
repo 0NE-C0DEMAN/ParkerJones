@@ -145,7 +145,15 @@
               <Field label="Receiving phone">
                 <Input value={data.receiving_contact_phone || ''} onChange={(v) => updateField('receiving_contact_phone', v)} placeholder="555-123-4567" />
               </Field>
-              <Field label="Status" className="col-span-3">
+              <Field label="Currency">
+                <Input
+                  value={data.currency || 'USD'}
+                  onChange={(v) => updateField('currency', (v || '').toUpperCase())}
+                  placeholder="USD"
+                  style={{ fontFamily: 'JetBrains Mono', textTransform: 'uppercase' }}
+                />
+              </Field>
+              <Field label="Status" className="col-span-2">
                 <StatusChooser status={data.status || 'received'} onChange={(s) => updateField('status', s)} />
               </Field>
             </div>
@@ -186,31 +194,6 @@
           Parties &amp; addresses
         </div>
         <AddressBlock data={data} onChange={setData} />
-
-        <div className="section-heading mt-4">
-          <div className="section-heading-icon"><Icon name="package" size={11} /></div>
-          Line items
-        </div>
-        <LineItemsTable
-          items={data.line_items}
-          onChange={updateLineItems}
-          currency={data.currency}
-        />
-
-        <div className="section-heading mt-4">
-          <div className="section-heading-icon"><Icon name="info" size={11} /></div>
-          Notes
-        </div>
-        <Card>
-          <Field>
-            <Textarea
-              value={data.notes || ''}
-              onChange={(v) => updateField('notes', v)}
-              rows={2}
-              placeholder="Internal notes about this PO (optional). Visible in the ledger."
-            />
-          </Field>
-        </Card>
           </div>
 
           <div className="review-pdf-col">
@@ -221,6 +204,39 @@
               method={data.extraction_method || pending.data?.extraction_method}
             />
           </div>
+        </div>
+
+        {/* Line items + notes span the FULL width of the page (outside the
+            form/PDF grid). The line items table needs every pixel it can
+            get — 10 editable columns inside half the screen makes the
+            value cells too narrow to be readable. The form/PDF split
+            above stays for header fields where cross-referencing the
+            source PDF actually matters. */}
+        <div className="review-fullwidth">
+          <div className="section-heading mt-4">
+            <div className="section-heading-icon"><Icon name="package" size={11} /></div>
+            Line items
+          </div>
+          <LineItemsTable
+            items={data.line_items}
+            onChange={updateLineItems}
+            currency={data.currency}
+          />
+
+          <div className="section-heading mt-4">
+            <div className="section-heading-icon"><Icon name="info" size={11} /></div>
+            Notes
+          </div>
+          <Card>
+            <Field>
+              <Textarea
+                value={data.notes || ''}
+                onChange={(v) => updateField('notes', v)}
+                rows={2}
+                placeholder="Internal notes about this PO (optional). Visible in the ledger."
+              />
+            </Field>
+          </Card>
         </div>
 
         <div className="review-actions">

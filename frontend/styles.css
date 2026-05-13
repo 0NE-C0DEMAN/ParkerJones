@@ -804,7 +804,10 @@ table { border-collapse: collapse; width: 100%; }
 .empty-text { font-size: 13px; color: var(--text-muted); max-width: 320px; line-height: 1.5; }
 .empty-actions { margin-top: 16px; display: flex; gap: 8px; }
 
-/* ===== Editable line items ===== */
+/* ===== Editable line items =====
+   Lives below the review-layout grid (full width) — see .review-fullwidth.
+   Header padding, cell padding, and input padding are tuned so the typed
+   text in every input lines up under its column header. */
 .line-items-card { padding: 0; }
 .line-items-table { width: 100%; }
 .line-items-table th {
@@ -813,17 +816,22 @@ table { border-collapse: collapse; width: 100%; }
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-muted);
+  /* th left-padding = td left-padding + input internal left-padding (8 + 4 = 12)
+     so column header text and input text start at the same x. */
   padding: 10px 12px;
   text-align: left;
   border-bottom: 1px solid var(--border);
   background: #fbfbfd;
   white-space: nowrap;
 }
+.line-items-table th.col-num { text-align: right; padding-right: 12px; }
 .line-items-table td {
-  padding: 4px 8px;
+  padding: 4px 4px;
   border-bottom: 1px solid var(--border-subtle);
   vertical-align: middle;
 }
+.line-items-table td:first-child { padding-left: 8px; }
+.line-items-table td:last-child  { padding-right: 8px; }
 .line-items-table tr:last-child td { border-bottom: none; }
 .line-items-table input {
   width: 100%;
@@ -1001,6 +1009,12 @@ table { border-collapse: collapse; width: 100%; }
 }
 
 .review-form-col { min-width: 0; }
+
+/* Line items + Notes sit BELOW the form/PDF grid at full width so the
+   editable line items table has enough horizontal room for all 10
+   columns (Cust Part / Vendor Part / Description / Qty / UOM / Unit /
+   Amount / Required / Notes / delete) without being crushed. */
+.review-fullwidth { margin-top: 4px; }
 
 .review-pdf-col {
   position: sticky;
