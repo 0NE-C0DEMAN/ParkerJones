@@ -2188,11 +2188,30 @@ table { border-collapse: collapse; width: 100%; }
 .dv-table tbody td.dv-mono { font-family: "JetBrains Mono", monospace; font-size: 10.5px; letter-spacing: -0.01em; font-weight: 500; }
 .dv-table tbody td.dv-muted { color: var(--text-subtle); }
 .dv-table tbody td.dv-strong { font-weight: 600; }
+
+/* ----- Row-state theming -----
+   Three visual tiers so a partly-expanded ledger reads at a glance:
+     - default rows : white, faint divider, no zebra (zebra was unreliable
+                      because expand rows offset the :nth-child count)
+     - hovered row  : subtle neutral gray — clearly NOT expanded
+     - expanded row : strong accent tint + 3px accent left bar that
+                      continues down through the expand panel below,
+                      so the row and its detail panel read as one block
+                      that's visually distinct from collapsed siblings.
+*/
 .dv-table tbody tr.dv-row { transition: background 80ms; }
-.dv-table tbody tr.dv-row:nth-child(4n+1) td { background: #fcfcfd; }
 .dv-table tbody tr.dv-row:hover { cursor: pointer; }
-.dv-table tbody tr.dv-row:hover td { background: var(--bg-hover); }
-.dv-table tbody tr.dv-row.dv-expanded td { background: var(--bg-hover); }
+.dv-table tbody tr.dv-row:hover td { background: #f4f6fa; }
+
+.dv-table tbody tr.dv-row.dv-expanded td {
+  background: var(--accent-light);
+  border-bottom-color: transparent;          /* run continuously into the panel */
+}
+/* Accent left bar — first cell (the chevron) gets a 3px inset accent
+   border that visually connects the row to its expanded panel below. */
+.dv-table tbody tr.dv-row.dv-expanded td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
 
 .dv-table th.dv-col-expand-cell, .dv-table td.dv-col-expand-cell {
   padding: 0; text-align: center; color: var(--text-subtle); cursor: pointer;
@@ -2209,9 +2228,8 @@ table { border-collapse: collapse; width: 100%; }
 
 .dv-table th.dv-frz, .dv-table td.dv-frz { position: sticky; z-index: 1; background: var(--bg-elevated); }
 .dv-table thead th.dv-frz { z-index: 3; background: var(--bg-subtle); }
-.dv-table tbody tr.dv-row:nth-child(4n+1) td.dv-frz { background: #fbfcfd; }
-.dv-table tbody tr.dv-row:hover td.dv-frz           { background: #eef0ff; }
-.dv-table tbody tr.dv-row.dv-expanded td.dv-frz     { background: #eef0ff; }
+.dv-table tbody tr.dv-row:hover td.dv-frz       { background: #f4f6fa; }
+.dv-table tbody tr.dv-row.dv-expanded td.dv-frz { background: var(--accent-light); }
 .dv-table td.dv-col-expand-cell.dv-frz, .dv-table th.dv-col-expand-cell.dv-frz { left: 0; }
 .dv-table .dv-c-po {
   left: 36px;
@@ -2251,15 +2269,20 @@ table { border-collapse: collapse; width: 100%; }
 .dv-pagination-info { white-space: nowrap; }
 .dv-pagination-range { color: var(--text-subtle); margin-left: 5px; }
 
-/* ===== expand panel ===== */
+/* ===== expand panel =====
+   Visually grouped with its parent row: same accent-tinted family,
+   slightly lighter so the row reads as the "header" of the block and
+   the panel as its "body". The 3px accent left bar continues from the
+   parent row, making the pair one visual unit. */
 .dv-expand-row td {
-  background: var(--bg-subtle);
-  border-bottom: 1px solid var(--border);
-  padding: 10px 12px 12px;
+  background: #f5f7ff;
+  border-bottom: 2px solid var(--accent-light);
+  padding: 10px 12px 14px;
   white-space: normal; overflow: visible; text-overflow: clip;
   vertical-align: top;
+  box-shadow: inset 3px 0 0 var(--accent);
 }
-.dv-expand-row td.dv-frz { background: var(--bg-subtle); }
+.dv-expand-row td.dv-frz { background: #f5f7ff; }
 
 .dv-panel { display: flex; flex-direction: column; gap: 8px; width: 100%; }
 .dv-panel-row { display: grid; gap: 8px; }
