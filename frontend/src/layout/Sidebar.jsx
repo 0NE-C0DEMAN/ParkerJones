@@ -49,9 +49,16 @@
           />
           <NavItem
             icon="rows"
-            label="Repository"
+            label="Ledger"
             active={activeView === 'repository'}
             onClick={() => onNavigate('repository')}
+            count={repositoryCount}
+          />
+          <NavItem
+            icon="grid"
+            label="Data"
+            active={activeView === 'data'}
+            onClick={() => onNavigate('data')}
             count={repositoryCount}
           />
 

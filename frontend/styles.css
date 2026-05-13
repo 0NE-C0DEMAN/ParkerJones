@@ -2016,3 +2016,96 @@ table { border-collapse: collapse; width: 100%; }
 }
 .segmented button:hover { color: var(--text); }
 .segmented button.active { background: white; color: var(--text); box-shadow: var(--shadow-xs); }
+
+/* ===== Data view — flat Excel-style table ===== */
+.data-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.data-view-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.data-table-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-xs);
+  min-height: 0;
+}
+
+.data-table-scroll {
+  overflow: auto;
+  max-height: calc(100vh - var(--topbar-h) - 200px);
+  min-height: 320px;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+  font-feature-settings: 'tnum';
+}
+
+.data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg-subtle);
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.data-table thead th.col-num { text-align: right; }
+
+.data-table tbody td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+  vertical-align: middle;
+}
+
+.data-table tbody td.col-num {
+  text-align: right;
+  font-feature-settings: 'tnum';
+}
+
+.data-table tbody tr.data-row {
+  cursor: pointer;
+  transition: background var(--t-fast);
+}
+
+.data-table tbody tr.data-row:hover {
+  background: var(--bg-hover);
+}
+
+.data-table-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  background: var(--bg-subtle);
+  border-top: 1px solid var(--border-subtle);
+}

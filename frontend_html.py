@@ -63,6 +63,7 @@ FILES_JSX = [
     "src/views/UploadView.jsx",
     "src/views/ReviewView.jsx",
     "src/views/RepositoryView.jsx",
+    "src/views/DataView.jsx",
     "src/views/SettingsView.jsx",
     "src/views/ProfileView.jsx",
     "src/views/TeamView.jsx",

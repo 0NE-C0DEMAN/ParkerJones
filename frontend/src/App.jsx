@@ -15,7 +15,7 @@
     // Resolve at render time so any component can be defined later in script order
     const {
       Sidebar, TopBar, ToastContainer, Button, Icon,
-      AuthView, UploadView, ReviewView, RepositoryView, SettingsView, ProfileView, TeamView,
+      AuthView, UploadView, ReviewView, RepositoryView, DataView, SettingsView, ProfileView, TeamView,
       CommandPalette, ErrorBoundary,
     } = window.App;
 
@@ -179,6 +179,16 @@
     }, []);
 
     // ---- save / update ----
+    //
+    // After a successful save we land the rep back on the Upload view,
+    // NOT on the Ledger. Reps process POs in batches — bouncing to
+    // Repository between every save means an extra click to get back to
+    // Upload. If they want to view the saved record, the toast says
+    // "added to ledger" and they can click Repository in the sidebar
+    // (or the small "View ledger" button that surfaces in the topbar
+    // when there are records). Edits are different: after editing a
+    // ledger row we DO return to Repository so the rep can see their
+    // changes in context.
     const handleConfirm = useCallback(async (data) => {
       try {
         let saved;
@@ -202,15 +212,16 @@
         }
         await refreshRepository();
         setPending(null);
-        // If there's another file in the queue, jump to upload view briefly
-        // (so the queue progress is visible) and process it.
+        // If there's another file in the queue, advance to it.
         if (queue.length > 0 && queueIndex < queue.length - 1) {
           setView('upload');
           setTimeout(() => advanceQueue(), 200);
-        } else {
-          setView('repository');
-          if (queue.length > 0) { setQueue([]); setQueueIndex(-1); }
+          return;
         }
+        if (queue.length > 0) { setQueue([]); setQueueIndex(-1); }
+        // Land on Repository only after edits; new uploads stay on
+        // Upload so the rep can drop the next PO immediately.
+        setView(wasEdit ? 'repository' : 'upload');
       } catch (err) {
         push({ type: 'error', message: `Save failed: ${err.message}` });
       }
@@ -229,10 +240,10 @@
         if (queue.length > 0 && queueIndex < queue.length - 1) {
           setView('upload');
           setTimeout(() => advanceQueue(), 200);
-        } else {
-          setView('repository');
-          if (queue.length > 0) { setQueue([]); setQueueIndex(-1); }
+          return;
         }
+        if (queue.length > 0) { setQueue([]); setQueueIndex(-1); }
+        setView('upload'); // same rule: keep the upload-batch flow alive
       } catch (err) {
         push({ type: 'error', message: `Save failed: ${err.message}` });
       }
@@ -380,6 +391,7 @@
     const titleFor = view === 'upload' ? 'Upload'
       : view === 'review' ? (pending?.isEdit ? 'Edit PO' : 'Review extraction')
       : view === 'repository' ? 'Ledger'
+      : view === 'data' ? 'Data'
       : view === 'profile' ? 'Profile'
       : view === 'team' ? 'Team'
       : 'Settings';
@@ -387,6 +399,7 @@
       upload: 'Drop POs to extract data with AI',
       review: pending?.filename || '',
       repository: `${repository.length} ${repository.length === 1 ? 'record' : 'records'} in database`,
+      data: `Flat tabular view — ${repository.length} ${repository.length === 1 ? 'PO' : 'POs'}, copy-into-Excel friendly`,
       profile: 'Your account & preferences',
       team: 'Manage members and invitations',
       settings: 'Workspace preferences',
@@ -397,10 +410,20 @@
         <Button variant="ghost" iconLeft="upload" onClick={() => handleNavigate('upload')}>Upload PO</Button>
         <Button variant="primary" iconLeft="download" onClick={handleDownload}>Export Excel</Button>
       </>
+    ) : view === 'data' && repository.length > 0 ? (
+      <>
+        <Button variant="ghost" iconLeft="upload" onClick={() => handleNavigate('upload')}>Upload PO</Button>
+        <Button variant="primary" iconLeft="download" onClick={handleDownload}>Export Excel</Button>
+      </>
     ) : view === 'upload' && repository.length > 0 ? (
-      <Button variant="secondary" iconLeft="rows" onClick={() => handleNavigate('repository')}>
-        View ledger ({repository.length})
-      </Button>
+      <>
+        <Button variant="ghost" iconLeft="rows" onClick={() => handleNavigate('repository')}>
+          Ledger ({repository.length})
+        </Button>
+        <Button variant="secondary" iconLeft="grid" onClick={() => handleNavigate('data')}>
+          Data view
+        </Button>
+      </>
     ) : null;
 
     return (
@@ -448,6 +471,14 @@
                     onStatusChange={handleStatusChange}
                     onBulkDelete={handleBulkDelete}
                     onBulkStatus={handleBulkStatus}
+                    currentUser={user}
+                  />
+                )}
+                {view === 'data' && (
+                  <DataView
+                    records={repository}
+                    onEdit={handleEdit}
+                    onDownload={handleDownload}
                     currentUser={user}
                   />
                 )}

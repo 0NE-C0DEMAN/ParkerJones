@@ -189,7 +189,7 @@
                       <Badge tone="default"><Icon name="file-text" size={11} />Contract #: <span style={{ fontFamily: 'JetBrains Mono' }}>{record.contract_number}</span></Badge>
                     )}
                     {record.quote_number && (
-                      <Badge tone="default"><Icon name="tag" size={11} />Quote #: <span style={{ fontFamily: 'JetBrains Mono' }}>{record.quote_number}</span></Badge>
+                      <Badge tone="default"><Icon name="hash" size={11} />Quote #: <span style={{ fontFamily: 'JetBrains Mono' }}>{record.quote_number}</span></Badge>
                     )}
                     {record.bill_to && (
                       <Badge tone="default"><Icon name="map-pin" size={11} />Bill: {truncate(record.bill_to.split('\n')[0], 24)}</Badge>
@@ -264,15 +264,15 @@
   function DetailStrip({ record }) {
     const { Icon } = window.App;
     const items = [
-      { icon: 'credit-card', label: 'Payment',       value: record.payment_terms },
+      { icon: 'dollar',      label: 'Payment',       value: record.payment_terms },
       { icon: 'truck',       label: 'Freight',       value: record.freight_terms },
-      { icon: 'navigation',  label: 'Ship via',      value: record.ship_via },
-      { icon: 'anchor',      label: 'F.O.B.',        value: record.fob_terms },
+      { icon: 'rotate-cw',   label: 'Ship via',      value: record.ship_via },
+      { icon: 'map-pin',     label: 'F.O.B.',        value: record.fob_terms },
       { icon: 'user',        label: 'Buyer',         value: record.buyer },
-      { icon: 'mail',        label: 'Buyer email',   value: record.buyer_email },
-      { icon: 'phone',       label: 'Buyer phone',   value: record.buyer_phone },
-      { icon: 'user-check',  label: 'Receiving',     value: record.receiving_contact },
-      { icon: 'phone',       label: 'Receiving ph.', value: record.receiving_contact_phone },
+      { icon: 'inbox',       label: 'Buyer email',   value: record.buyer_email },
+      { icon: 'info',        label: 'Buyer phone',   value: record.buyer_phone },
+      { icon: 'user',        label: 'Receiving',     value: record.receiving_contact },
+      { icon: 'info',        label: 'Receiving ph.', value: record.receiving_contact_phone },
     ].filter((x) => x.value && String(x.value).trim());
 
     if (!items.length) return null;
