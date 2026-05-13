@@ -261,9 +261,23 @@
     const items = Array.isArray(data?.line_items) ? data.line_items : [];
 
     const normalized_items = items.map((it, i) => {
-      const quantity = Number(it.quantity) || 0;
-      const unit_price = Number(it.unit_price) || 0;
-      const amount = Number(it.amount);
+      let quantity = Number(it.quantity) || 0;
+      let unit_price = Number(it.unit_price) || 0;
+      let amount = Number(it.amount);
+      if (!Number.isFinite(amount) || amount <= 0) amount = 0;
+
+      // Recover any one missing value when we have the other two.
+      // The LLM occasionally misses one of (qty, price, amount) when the
+      // line layout is unusual — recover from the other two rather than
+      // saving a zero.
+      if (quantity > 0 && unit_price > 0 && amount === 0) {
+        amount = +(quantity * unit_price).toFixed(2);
+      } else if (amount > 0 && unit_price > 0 && quantity === 0) {
+        quantity = +(amount / unit_price).toFixed(4);
+      } else if (amount > 0 && quantity > 0 && unit_price === 0) {
+        unit_price = +(amount / quantity).toFixed(4);
+      }
+
       return {
         line: Number(it.line) || i + 1,
         customer_part: String(it.customer_part || '').trim(),
@@ -272,7 +286,7 @@
         quantity,
         uom: normUom(it.uom),
         unit_price,
-        amount: Number.isFinite(amount) && amount > 0 ? amount : +(quantity * unit_price).toFixed(2),
+        amount,
         required_date: normDate(it.required_date),
         notes: String(it.notes || '').trim(),
       };

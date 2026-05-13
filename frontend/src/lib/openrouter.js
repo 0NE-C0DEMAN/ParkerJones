@@ -122,9 +122,13 @@ OPTIONAL STRUCTURED PART FIELDS (fill ONLY when labels are UNAMBIGUOUS)
 - If the column header is just "ITEM" or ambiguous, leave BOTH fields "" — the description already has every identifier.
 
 OTHER LINE FIELDS
-- "amount" (a.k.a. "Extension", "Extended", "Line Cost", "Net") = quantity × unit_price. Compute whichever is missing.
+
+⚠️ QUANTITY, UNIT_PRICE, and AMOUNT are CRITICAL — they drive the rep's invoice math. Never return 0 for any of these unless the document literally shows a blank or zero. If you see two of the three, compute the third (quantity × unit_price = amount within rounding tolerance).
+
+- "quantity" — labels: "Qty", "Quantity", "Order Quantity". On Wesco/Meridian it's the SECOND column right after Line #; on Ariba between Contract Ref # and Units; on TEMA between LINE and UOM.
+- "unit_price" — labels: "Unit Price", "Unit Cost", "Net Quoted Price", "Price". Plain decimal, no $ or commas.
+- "amount" (a.k.a. "Extension", "Extended", "Line Cost", "Net", "Total"). Must equal quantity × unit_price within ±$0.50.
 - "uom" (a.k.a. "Qty UM", "Units", "U/M"): Use the EXACT unit shown — EA, BX, CS, LT, FT, M, LB, KG, RL, PK, PR, etc. Don't normalize to EA. Only default to "EA" when NO unit appears.
-- "quantity" — plain number; if the doc says "12 BX" → quantity=12, uom="BX".
 - "required_date" (a.k.a. "Due Date", "Need By", "Ship Date").
 - "notes" (PER-LINE): short instructions specific to this line — e.g. "30 PER PALLET", "Ship by 5/18/2026", "DO NOT SHIP USING AAA COOPER". One short paragraph max, line breaks as \\n. Don't repeat the description here.
 

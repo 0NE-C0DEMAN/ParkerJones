@@ -146,9 +146,13 @@ OPTIONAL STRUCTURED PART FIELDS (only when labels are UNAMBIGUOUS)
 - If the column header is just "ITEM" (no qualifier), or you cannot tell which side of the relationship a code belongs to, leave BOTH customer_part and vendor_part as "" — the description already has every identifier the rep needs.
 
 OTHER LINE FIELDS
-- "amount" (a.k.a. "Extension", "Extended", "Line Cost", "Net") = quantity × unit_price. If only one is given, compute the other.
+
+⚠️ QUANTITY, UNIT_PRICE, and AMOUNT are CRITICAL — they drive the rep's invoice math. Never return 0 for any of these unless the document literally shows a blank or zero. If you see two of the three (e.g. only quantity and amount) compute the third yourself rather than leaving it at 0. The values must satisfy quantity × unit_price = amount within rounding tolerance.
+
+- "quantity" — plain number. Look for the column literally labeled "Qty", "Quantity", "Order Quantity", "Order Qty". On Wesco/Meridian layouts it's the SECOND column of the line items table (right after Line #); on Ariba it appears between Contract Ref # and Units; on TEMA it's between LINE and UOM. If the doc shows "12 BX" the quantity is 12 and the uom is "BX". Never put 0 in quantity if the line clearly shows a real number — when in doubt, derive it from amount ÷ unit_price.
+- "unit_price" — same rule. Labels include "Unit Price", "Unit Cost", "Net Quoted Price", "Price", "Net". Plain decimal, no $ sign or thousands commas.
+- "amount" (a.k.a. "Extension", "Extended", "Line Cost", "Net", "Total") — same rule. Must equal quantity × unit_price within ±$0.50.
 - "uom" (a.k.a. "Qty UM", "Units", "U/M"): Use the EXACT unit shown on the document — EA, BX, CS, LT, FT, M, LB, KG, RL, PK, PR, etc. If the doc shows "BX" use "BX", never normalize to "EA". Only fall back to "EA" when NO unit is shown anywhere on the line.
-- "quantity" — plain number. If the doc shows "12 BX" then quantity=12 and uom="BX".
 - "required_date" (a.k.a. "Due Date", "Need By", "Ship Date"): delivery / required-by date for that line.
 - "notes" (PER-LINE): short additional instructions specific to this line — examples from real POs:
     "30 PER PALLET", "Ship by 5/18/2026", "PLEASE SHIP X OR SOONER",

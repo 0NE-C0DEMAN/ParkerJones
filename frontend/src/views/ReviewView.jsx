@@ -255,6 +255,23 @@
     if (!data.customer && !data.supplier) {
       issues.push('Both customer and supplier are blank — extraction may have failed.');
     }
+    // Per-line sanity — flag lines where critical fields are zero / empty.
+    // These usually point to an extraction miss (column drift, layout
+    // confusion) rather than a real zero, so it's worth a rep glance.
+    (data.line_items || []).forEach((it, idx) => {
+      const qty = Number(it.quantity) || 0;
+      const price = Number(it.unit_price) || 0;
+      const amt = Number(it.amount) || 0;
+      const lineLabel = `Line ${it.line || idx + 1}`;
+      if (qty === 0 && (price > 0 || amt > 0)) {
+        issues.push(`${lineLabel}: quantity is 0 but a price or amount is set — extraction likely missed the qty column.`);
+      } else if (qty === 0 && price === 0 && amt === 0 && (it.description || '').trim()) {
+        issues.push(`${lineLabel}: no quantity, price, or amount captured.`);
+      }
+      if (!(it.description || '').trim() && qty > 0) {
+        issues.push(`${lineLabel}: description is empty — verify before saving.`);
+      }
+    });
     if (issues.length === 0) return null;
     return (
       <div style={{
