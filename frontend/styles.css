@@ -2277,8 +2277,13 @@ table { border-collapse: collapse; width: 100%; }
    Visually grouped with its parent row: same accent-tinted family,
    slightly lighter so the row reads as the "header" of the block and
    the panel as its "body". The 3px accent left bar continues from the
-   parent row, making the pair one visual unit. */
-.dv-expand-row td {
+   parent row, making the pair one visual unit.
+   IMPORTANT: use the child combinator `>` so this only targets the
+   single wrapper `<td>` of the expand row — not the nested `<td>`s
+   inside the line items table, which would otherwise inherit the
+   accent left-bar box-shadow and look like blue dividers between
+   every cell. */
+.dv-expand-row > td {
   background: #f5f7ff;
   border-bottom: 2px solid var(--accent-light);
   padding: 10px 12px 14px;
@@ -2286,7 +2291,7 @@ table { border-collapse: collapse; width: 100%; }
   vertical-align: top;
   box-shadow: inset 3px 0 0 var(--accent);
 }
-.dv-expand-row td.dv-frz { background: #f5f7ff; }
+.dv-expand-row > td.dv-frz { background: #f5f7ff; }
 
 .dv-panel { display: flex; flex-direction: column; gap: 8px; width: 100%; }
 .dv-panel-row { display: grid; gap: 8px; }
