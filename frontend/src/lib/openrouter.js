@@ -46,7 +46,7 @@ FIELD LABEL VARIATIONS — different PO templates use different words for the sa
   receiving_contact      <- "Receiving Contact", "Deliver To Attn", "Site Contact"
   receiving_contact_phone <- "Phone:" inside the receiving / ship-to block
   quote_number           <- "Quote #", "Quote", "Reference: Quote #..."
-  contract_number        <- "Contract#", "Contract Ref #", "Master Agreement"
+  contract_number        <- "Contract#", "Contract Ref #", "Master Agreement". On Ariba layouts the contract ref appears INLINE in the line-items row header — e.g. "Line# Item # Catalog # Required Date Contract Ref # Qty Units ..." then "Line 4002005   09/05/2026 25465   16 EA ...". The "25465" between the date and the qty is contract_number.
   total                  <- "TOTAL ORDER", "Total", "Grand Total", "Purchase Total", "Total PO Cost"
 
 CRITICAL FIELD RULES
@@ -56,7 +56,7 @@ CRITICAL FIELD RULES
   * bill_to should ONLY contain a postal address that a paper invoice could be mailed to.
 
 #2 — Each address field belongs to its OWN entity. Never borrow.
-  * If the PO names the customer at the top (logo / letterhead) but shows no separate customer address block, leave customer_address as "".
+  * If the PO names the customer at the top (logo / letterhead) but shows no separate customer address block, leave customer_address as "". This applies EVEN IF the ship-to entity has the same name as the customer — DO NOT copy the ship-to address into customer_address, because the address shown is the warehouse, not the customer's HQ.
   * The supplier's address is often "C/O <broker> INC, ..." — that broker address belongs in supplier_address, NEVER in customer_address.
   * The SHIP TO block is typically a warehouse / DC belonging to the customer — NOT the supplier. Put it in ship_to, NEVER in supplier_address.
 
@@ -372,6 +372,86 @@ OUTPUT SCHEMA
    * vision-capable model. Used when text extraction fails (scanned PDFs).
    * Same JSON output schema as the text path.
    */
+  /**
+   * Hybrid extraction — text + page images in one call. The LLM uses text
+   * for clean values, images for spatial layout. Same JSON schema as the
+   * other two paths.
+   */
+  async function extractWithHybrid(documentText, pageImages, { apiKey, apiKeys, model, signal, maxTokens = 8192 } = {}) {
+    if (!documentText || documentText.length < 20) {
+      throw new Error('No text could be read from this document.');
+    }
+    if (!pageImages || pageImages.length === 0) {
+      return extractWithLLM(documentText, { apiKey, apiKeys, model, signal, maxTokens });
+    }
+    const keys = (Array.isArray(apiKeys) && apiKeys.length) ? apiKeys : (apiKey ? [apiKey] : []);
+    if (!keys.length) throw new Error('No API key configured. Set one in Settings.');
+    return _withFallback(keys, (k) => _doHybridExtract(documentText, pageImages, { apiKey: k, model, signal, maxTokens }));
+  }
+
+  async function _doHybridExtract(documentText, pageImages, { apiKey, model, signal, maxTokens }) {
+    const MAX_CHARS = 60000;
+    const trimmed = documentText.length > MAX_CHARS
+      ? documentText.slice(0, MAX_CHARS) + '\n\n[document truncated for length]'
+      : documentText;
+
+    const content = [
+      {
+        type: 'text',
+        text:
+          'You are given BOTH the parsed text of this PO AND the rendered page images. ' +
+          'Use the text for clean character values (it has no OCR errors). ' +
+          'Use the images for spatial layout — which block is in which column, ' +
+          'which lines belong together visually, where the supplier ends and the ship-to begins. ' +
+          'Cross-check: if the text suggests two values belong to the same field but the image shows ' +
+          'they are in different columns, trust the image for that judgment.\n\n' +
+          '=== PARSED TEXT ===\n\n' + trimmed +
+          '\n\n=== PAGE IMAGES ===',
+      },
+      ...pageImages.map((url) => ({ type: 'image_url', image_url: { url } })),
+    ];
+
+    const body = {
+      model: model || 'anthropic/claude-sonnet-4.5',
+      temperature: 0,
+      max_tokens: maxTokens,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content },
+      ],
+    };
+
+    const res = await fetch(ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': window.location.origin,
+        'X-Title': 'Foundry PO Capture (hybrid)',
+      },
+      body: JSON.stringify(body),
+      signal,
+    });
+    if (!res.ok) {
+      let msg = `OpenRouter API ${res.status}`;
+      try { msg = (await res.json())?.error?.message || msg; } catch { /* ignore */ }
+      throw new Error(msg);
+    }
+    const json = await res.json();
+    const text = json?.choices?.[0]?.message?.content;
+    const finishReason = json?.choices?.[0]?.finish_reason;
+    if (!text) throw new Error('Empty response from LLM.');
+    if (finishReason === 'length') {
+      throw new Error('Hybrid response was cut off — try a model with more max_tokens or split the PO.');
+    }
+    try {
+      return parseJsonContent(text);
+    } catch {
+      throw new Error('Hybrid model did not return valid JSON.');
+    }
+  }
+
   async function extractWithVision(pageImages, { apiKey, apiKeys, model, signal, maxTokens = 8192 } = {}) {
     if (!pageImages || pageImages.length === 0) {
       throw new Error('No page images supplied for vision extraction.');
@@ -508,5 +588,5 @@ OUTPUT SCHEMA
   }
 
   window.App = window.App || {};
-  window.App.openrouter = { extractWithLLM, extractWithVision, pingLLM };
+  window.App.openrouter = { extractWithLLM, extractWithHybrid, extractWithVision, pingLLM };
 })();

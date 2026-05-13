@@ -2,8 +2,8 @@
    extractor (window.App.api) — PO extraction pipeline.
 
    ROUTING — deterministic, binary:
-     • pdfplumber returns ANY text  → text path (Gemini text)
-     • pdfplumber returns no text   → vision path (Gemini Flash vision)
+     • pdfplumber returns ANY text  → HYBRID path (text + page images)
+     • pdfplumber returns no text   → VISION path (page images only)
 
    For MACHINE-READABLE PDFs (almost everything Parker handles):
      1. Get page count of the PDF (cheap, client-side).
@@ -11,7 +11,11 @@
         MAX_EXTRACT_PAGES pages with pdfplumber.extract_text(layout=True)
         plus a last-wins char dedup pass (handles overlaid template text
         on Ariba-style PDFs).
-     3. Send the parsed text to gemini-2.5-flash.
+     3. Render the same pages as PNG via pdf.js at scale 2.0.
+     4. Send BOTH text and images to gemini-2.5-flash in one call. The
+        model uses text for clean character values (no OCR errors) and
+        the images for spatial layout grounding (which block is in which
+        column on Ariba two-column headers, etc.).
 
    For SCANNED / image-only PDFs:
      1. pdfplumber returns empty strings for every page.
@@ -130,23 +134,52 @@
         `please double-check totals and part numbers.`
       );
     } else {
-      // ---- TEXT PATH ----
+      // ---- HYBRID PATH (text + images in one call) ----
+      // Even though we have a clean text layer, we also render the first
+      // few pages as images and ship both views to Gemini in a single
+      // call. The model uses text for clean character values and the
+      // image for spatial layout (column boundaries, address-block
+      // ownership). On Ariba layouts the image disambiguates the
+      // supplier-vs-ship-to columns; the text guarantees clean values.
       const fullText = pages
         .map((p, i) => `--- Page ${i + 1} ---\n${p}`)
         .join('\n\n');
 
       if (parsedPageCount < pageCountFull) {
         onStage?.('extracting',
-          `Parsed pages 1–${parsedPageCount} of ${pageCountFull} (rest is T&Cs) — extracting fields`);
+          `Parsed pages 1–${parsedPageCount} of ${pageCountFull} (rest is T&Cs) — rendering pages for layout grounding`);
       } else {
         onStage?.('extracting',
-          `Extracting fields with ${provider === 'google' ? 'Gemini 2.5 Flash' : 'Claude/GPT'}`);
+          `Rendering ${parsedPageCount} page${parsedPageCount === 1 ? '' : 's'} for layout grounding`);
       }
 
+      let pageImages = [];
+      try {
+        const rendered = await window.App.pdfParser.renderPagesToImages(file, {
+          maxPages: MAX_EXTRACT_PAGES,
+          scale: 2.0,
+        });
+        pageImages = rendered.images || [];
+      } catch (err) {
+        console.warn('Foundry: page rendering failed, falling back to text-only', err);
+        warnings.push(
+          'Could not render page images for hybrid extraction — used text-only. ' +
+          'Column-heavy layouts may need a manual check.'
+        );
+      }
+
+      onStage?.('extracting',
+        `Extracting fields with ${provider === 'google' ? 'Gemini 2.5 Flash' : 'Claude/GPT'} (text + image)`);
+
+      // If we have images, use hybrid; otherwise gracefully degrade to text-only.
+      const useHybrid = pageImages.length > 0 && typeof client.extractWithHybrid === 'function';
       raw = await _callWithRetry(
-        () => client.extractWithLLM(fullText, { apiKeys, model }),
-        { label: 'text extraction' }
+        () => useHybrid
+          ? client.extractWithHybrid(fullText, pageImages, { apiKeys, model })
+          : client.extractWithLLM(fullText, { apiKeys, model }),
+        { label: useHybrid ? 'hybrid extraction' : 'text extraction' }
       );
+      extractionMethod = useHybrid ? 'hybrid' : 'text';
     }
 
     onStage?.('validating', 'Validating');

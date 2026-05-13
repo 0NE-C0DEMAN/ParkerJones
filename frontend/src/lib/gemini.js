@@ -54,7 +54,7 @@ FIELD LABEL VARIATIONS — different PO templates use different words for the sa
   receiving_contact      <- "Receiving Contact", "Deliver To Attn", "Site Contact" (PERSON, at delivery location)
   receiving_contact_phone <- "Phone:" inside the receiving / ship-to block
   quote_number           <- "Quote #", "Quote", "QUOTE #", "Reference: Quote #..."
-  contract_number        <- "Contract#", "Contract Ref #", "Master Agreement"
+  contract_number        <- "Contract#", "Contract Ref #", "Master Agreement". On Ariba layouts the contract reference often appears INLINE inside the line-items row header — e.g. "Line# Item # Catalog # Required Date Contract Ref # Qty Units ..." followed by "Line 4002005   09/05/2026 25465   16 EA ...". The "25465" between the date and the quantity is the contract_number. Always check the line-items header for this column.
   total                  <- "TOTAL ORDER", "Total", "Grand Total", "Purchase Total", "Total PO Cost", "PO Total"
 
 CRITICAL FIELD RULES
@@ -68,7 +68,7 @@ CRITICAL FIELD RULES
            notes:   "Send invoices to: TEMA.INVOICES@NCEMCS.COM"
 
 #2 — Each address field belongs to its OWN entity. Never borrow.
-  * If the PO names the customer at the top (logo / letterhead) but shows no separate customer address block, leave customer_address as "".
+  * If the PO names the customer at the top (logo / letterhead) but shows no separate customer address block, leave customer_address as "". This applies EVEN IF the ship-to entity has the same name as the customer (e.g. TEMA buying for TEMA) — DO NOT copy the ship-to address into customer_address, because the address shown is the warehouse, not the customer's HQ. customer_address must come from its OWN block, distinct from ship_to.
   * The supplier's address is often "C/O <broker> INC, ..." — that broker address belongs in supplier_address, NEVER in customer_address.
   * The SHIP TO block is typically a warehouse / DC belonging to the customer — NOT the supplier. Put it in ship_to, NEVER in supplier_address.
 
@@ -331,6 +331,78 @@ OUTPUT SCHEMA
     });
   }
 
+  /**
+   * Hybrid extraction — sends BOTH the layout-preserved text AND the
+   * rendered page images to Gemini in ONE call. The model uses the text
+   * for clean character values (no OCR errors) and the images for
+   * spatial layout grounding (which block is which column).
+   *
+   * Always uses gemini-2.5-flash even if the rep has Flash-Lite selected
+   * for plain text extraction — Lite's vision is too weak to be useful
+   * for layout grounding.
+   *
+   * Roughly 1.5× the cost of text-only (3 images at scale 2.0 add ~2.3K
+   * input tokens to the existing ~5K of text). Eliminates most of the
+   * column-confusion errors we saw on Ariba layouts (Apex / Duke where
+   * supplier address vs ship-to address got swapped).
+   */
+  async function extractWithHybrid(documentText, pageImages, { apiKey, apiKeys, model, signal, maxTokens = 8192 } = {}) {
+    if (!documentText || documentText.length < 20) {
+      throw new Error('No text could be read from this document.');
+    }
+    if (!pageImages || pageImages.length === 0) {
+      // Degrade to text-only rather than fail — caller chose hybrid but
+      // rendering didn't work for some reason.
+      return extractWithLLM(documentText, { apiKey, apiKeys, model, signal, maxTokens });
+    }
+    const keys = (Array.isArray(apiKeys) && apiKeys.length) ? apiKeys : (apiKey ? [apiKey] : []);
+    if (!keys.length) throw new Error('No Gemini API key configured.');
+
+    const hybridModel = (!model || model === 'gemini-2.5-flash-lite')
+      ? 'gemini-2.5-flash'
+      : model;
+
+    const MAX_CHARS = 500000;
+    const trimmed = documentText.length > MAX_CHARS
+      ? documentText.slice(0, MAX_CHARS) + '\n\n[document truncated for length]'
+      : documentText;
+
+    // Build a single user turn with text + each page image inline.
+    // The leading text tells Gemini how to use the two views together.
+    const parts = [{
+      text:
+        'You are given BOTH the parsed text of this PO AND the rendered page images. ' +
+        'Use the text for clean character values (it has no OCR errors). ' +
+        'Use the images for spatial layout — which block is in which column, ' +
+        'which lines belong together visually, where the supplier ends and the ship-to begins. ' +
+        'Cross-check: if the text suggests two values belong to the same field but the image shows ' +
+        'they are in different columns, trust the image for that judgment.\n\n' +
+        '=== PARSED TEXT ===\n\n' + trimmed +
+        '\n\n=== PAGE IMAGES ===',
+    }];
+    for (const url of pageImages) {
+      const m = url.match(/^data:(image\/\w+);base64,(.*)$/);
+      if (!m) continue;
+      parts.push({ inlineData: { mimeType: m[1], data: m[2] } });
+    }
+
+    const body = {
+      systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+      contents: [{ role: 'user', parts }],
+      generationConfig: {
+        temperature: 0,
+        maxOutputTokens: maxTokens,
+        responseMimeType: 'application/json',
+        thinkingConfig: { thinkingBudget: 0 },
+      },
+    };
+
+    return _withFallback(keys, async (k) => {
+      const text = await _callGemini(hybridModel, k, body, signal);
+      return _parseJson(text);
+    });
+  }
+
   async function extractWithVision(pageImages, { apiKey, apiKeys, model, signal, maxTokens = 8192 } = {}) {
     if (!pageImages || pageImages.length === 0) {
       throw new Error('No page images supplied for vision extraction.');
@@ -410,5 +482,5 @@ OUTPUT SCHEMA
   }
 
   window.App = window.App || {};
-  window.App.gemini = { extractWithLLM, extractWithVision, pingLLM };
+  window.App.gemini = { extractWithLLM, extractWithHybrid, extractWithVision, pingLLM };
 })();
