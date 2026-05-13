@@ -44,17 +44,22 @@
           <table className="line-items-table">
             <thead>
               <tr>
-                <th style={{ width: 40 }}>#</th>
+                {/* `minWidth` not `width` — the table layout is `auto`, so
+                    only a min keeps a column from being squeezed below the
+                    point its value is readable (the previous bug: Qty
+                    column was crushed to 29px and the input's "0" / "450"
+                    was pushed off-screen by browser spin buttons). */}
+                <th style={{ minWidth: 40 }}>#</th>
                 <th style={{ minWidth: 120 }}>Customer Part</th>
                 <th style={{ minWidth: 140 }}>Vendor Part</th>
                 <th style={{ minWidth: 240 }}>Description</th>
-                <th style={{ width: 70 }} className="col-num">Qty</th>
-                <th style={{ width: 50 }}>UOM</th>
-                <th style={{ width: 100 }} className="col-num">Unit Price</th>
-                <th style={{ width: 110 }} className="col-num">Amount</th>
-                <th style={{ width: 110 }}>Required</th>
+                <th style={{ minWidth: 80 }} className="col-num">Qty</th>
+                <th style={{ minWidth: 56 }}>UOM</th>
+                <th style={{ minWidth: 100 }} className="col-num">Unit Price</th>
+                <th style={{ minWidth: 110 }} className="col-num">Amount</th>
+                <th style={{ minWidth: 130 }}>Required</th>
                 <th style={{ minWidth: 160 }}>Notes</th>
-                <th style={{ width: 36 }} />
+                <th style={{ minWidth: 36 }} />
               </tr>
             </thead>
             <tbody>

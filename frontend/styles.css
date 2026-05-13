@@ -845,6 +845,20 @@ table { border-collapse: collapse; width: 100%; }
   outline: none;
 }
 .line-items-table .col-num input { font-family: 'JetBrains Mono', monospace; text-align: right; font-variant-numeric: tabular-nums; }
+/* Kill browser spin buttons on number inputs — they take ~17px on the
+   right of the input, and combined with text-align:right that pushes
+   the actual digits off-screen in narrow cells (the bug where Qty
+   appeared blank in the Edit form even though value was "0" / "450"). */
+.line-items-table input[type="number"]::-webkit-inner-spin-button,
+.line-items-table input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+.line-items-table input[type="number"] { -moz-appearance: textfield; }
+/* Floor for the numeric cell widths so the value is always readable even
+   if the column auto-sized to its minimum. */
+.line-items-table .col-num input { min-width: 48px; }
 .line-items-add-row { padding: 10px 12px; border-top: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center; }
 .line-items-totals {
   padding: 12px 16px;
