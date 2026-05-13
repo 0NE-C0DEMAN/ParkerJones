@@ -145,28 +145,37 @@ table { border-collapse: collapse; width: 100%; }
 .sidebar.collapsed .user-card      { justify-content: center; padding: 8px 0; }
 .sidebar.collapsed .user-avatar    { margin: 0; }
 
-/* Collapse toggle button — sits at the bottom-right of the sidebar edge,
-   chevron-left when expanded ("click to collapse"), chevron-right when
-   collapsed ("click to expand"). */
-.sidebar-collapse-btn {
-  position: absolute;
-  top: 18px;
-  right: -11px;
-  width: 22px;
-  height: 22px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
+/* The brand header itself acts as the collapse toggle — clicking the
+   Foundry logo / title toggles the sidebar. Cleaner than a floating
+   chevron button. A tiny chevron-left glyph at the right side of the
+   header hints that it's interactive. */
+.sidebar-header-button {
+  /* override default <button> chrome */
+  background: transparent;
+  border: 0;
+  width: 100%;
+  text-align: left;
   cursor: pointer;
-  z-index: 20;
-  color: var(--text-muted);
-  box-shadow: var(--shadow-xs);
-  transition: color 100ms, background 100ms, border-color 100ms;
+  font-family: inherit;
+  color: inherit;
+  transition: background 100ms;
 }
-.sidebar-collapse-btn:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-light); }
-.sidebar-collapse-btn svg { transition: transform 200ms; }
-.sidebar.collapsed .sidebar-collapse-btn svg { transform: rotate(180deg); }
+.sidebar-header-button:hover { background: var(--bg-subtle); }
+.sidebar-header-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.brand-collapse-glyph {
+  margin-left: auto;
+  color: var(--text-subtle);
+  transition: color 100ms, transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  flex-shrink: 0;
+}
+.sidebar-header-button:hover .brand-collapse-glyph { color: var(--accent); }
+.sidebar.collapsed .brand-collapse-glyph { transform: rotate(180deg); }
+/* When the sidebar is collapsed there's no room for the chevron — hide
+   it; the brand-mark itself remains clickable as the expand target. */
+.sidebar.collapsed .brand-collapse-glyph { display: none; }
 
 .sidebar-header {
   padding: 18px 16px 14px;

@@ -28,18 +28,13 @@
 
     return (
       <aside className={'sidebar' + (collapsed ? ' collapsed' : '')}>
-        {onToggleCollapsed && (
-          <button
-            type="button"
-            className="sidebar-collapse-btn"
-            onClick={onToggleCollapsed}
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            <Icon name="chevron-left" size={13} />
-          </button>
-        )}
-        <div className="sidebar-header">
+        <button
+          type="button"
+          className="sidebar-header sidebar-header-button"
+          onClick={onToggleCollapsed}
+          title={collapsed ? 'Expand sidebar (click Foundry)' : 'Collapse sidebar (click Foundry)'}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
           <div className="brand-mark">
             <BrandMark size={16} />
           </div>
@@ -47,7 +42,12 @@
             <div className="brand-name">Foundry</div>
             <div className="brand-tag">PO Capture</div>
           </div>
-        </div>
+          <Icon
+            name="chevron-left"
+            size={13}
+            className="brand-collapse-glyph"
+          />
+        </button>
 
         <nav className="sidebar-nav">
           <div className="nav-section-title">Workspace</div>
