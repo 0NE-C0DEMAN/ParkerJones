@@ -51,6 +51,7 @@
                 <SortableHeader k="po_number" label="PO #" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                 <SortableHeader k="customer"  label="Customer" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                 <SortableHeader k="supplier"  label="Supplier" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                <SortableHeader k="buyer"     label="Buyer" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                 <SortableHeader k="po_date"   label="PO Date" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                 <th>Status</th>
                 <SortableHeader k="line_count" label="Lines" sortKey={sortKey} sortDir={sortDir} onSort={onSort} numeric />
@@ -141,6 +142,7 @@
           </td>
           <td title={record.customer}>{truncate(record.customer || '—', 24)}</td>
           <td title={record.supplier}>{truncate(record.supplier || '—', 24)}</td>
+          <td title={record.buyer}>{truncate(record.buyer || '—', 18)}</td>
           <td>{formatDate(record.po_date)}</td>
           <td onClick={(e) => e.stopPropagation()}>
             <StatusChooser status={record.status || 'received'} onChange={(s) => onStatusChange?.(record.id, s)} />
@@ -172,7 +174,7 @@
         </tr>
         {expanded && (
           <tr className="expanded-row">
-            <td colSpan={12}>
+            <td colSpan={13}>
               <div className="expanded-content">
                 <div className="flex items-center justify-between mb-3">
                   <div>

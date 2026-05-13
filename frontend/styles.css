@@ -2109,3 +2109,75 @@ table { border-collapse: collapse; width: 100%; }
   background: var(--bg-subtle);
   border-top: 1px solid var(--border-subtle);
 }
+
+/* ===== Data view — sticky first column + column visibility menu ===== */
+.data-table thead th:first-child,
+.data-table tbody td:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--bg-elevated);
+  border-right: 1px solid var(--border);
+  z-index: 1;
+}
+.data-table thead th:first-child {
+  background: var(--bg-subtle);
+  z-index: 3;
+}
+.data-table tbody tr.data-row:hover td:first-child {
+  background: var(--bg-hover);
+}
+
+.col-visibility-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 50;
+  min-width: 220px;
+  max-height: 360px;
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
+  padding: 6px 0;
+}
+.col-visibility-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 4px;
+}
+.col-visibility-reset {
+  font-size: 11px;
+  color: var(--accent);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.col-visibility-reset:hover { text-decoration: underline; }
+.col-visibility-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  cursor: pointer;
+  user-select: none;
+  color: var(--text);
+}
+.col-visibility-item:hover { background: var(--bg-hover); }
+.col-visibility-item input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}

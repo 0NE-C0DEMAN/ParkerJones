@@ -19,12 +19,49 @@
   const { formatCurrency, formatDate, cn, truncate } = window.App.utils;
   const _A = () => window.App;
 
+  // Storage key for the user's column-visibility preference, separate by
+  // mode so headers-view and lines-view can hide different columns.
+  const HIDDEN_COLS_KEY = (mode) => `foundry.dataview.hiddenCols.${mode}`;
+
+  function loadHiddenCols(mode) {
+    try {
+      const v = window.localStorage.getItem(HIDDEN_COLS_KEY(mode));
+      return v ? new Set(JSON.parse(v)) : new Set();
+    } catch { return new Set(); }
+  }
+  function saveHiddenCols(mode, set) {
+    try { window.localStorage.setItem(HIDDEN_COLS_KEY(mode), JSON.stringify([...set])); }
+    catch { /* localStorage unavailable */ }
+  }
+
   function DataView({ records, onEdit, onDownload, currentUser }) {
     const { SearchInput, Segmented, Button, Icon, EmptyState, StatusPill } = _A();
     const [query, setQuery] = useState('');
     const [mode, setMode] = useState('headers'); // 'headers' | 'lines'
     const [sortKey, setSortKey] = useState('updated_at');
     const [sortDir, setSortDir] = useState('desc');
+    const [hiddenCols, setHiddenCols] = useState(() => loadHiddenCols('headers'));
+    const [colMenuOpen, setColMenuOpen] = useState(false);
+
+    // Reload hidden-cols when mode flips
+    React.useEffect(() => {
+      setHiddenCols(loadHiddenCols(mode));
+    }, [mode]);
+
+    const toggleCol = useCallback((key) => {
+      setHiddenCols((curr) => {
+        const next = new Set(curr);
+        if (next.has(key)) next.delete(key); else next.add(key);
+        saveHiddenCols(mode, next);
+        return next;
+      });
+    }, [mode]);
+
+    const showAllCols = useCallback(() => {
+      const empty = new Set();
+      saveHiddenCols(mode, empty);
+      setHiddenCols(empty);
+    }, [mode]);
 
     // ---- filter ----
     const filtered = useMemo(() => {
@@ -107,7 +144,8 @@
       );
     }
 
-    const columns = mode === 'headers' ? HEADER_COLUMNS : LINE_COLUMNS;
+    const allColumns = mode === 'headers' ? HEADER_COLUMNS : LINE_COLUMNS;
+    const columns = allColumns.filter((c) => !hiddenCols.has(c.key));
 
     return (
       <div className="view data-view">
@@ -126,6 +164,34 @@
             placeholder="Filter — PO #, customer, supplier, part, description..."
           />
           <div className="flex-1" />
+          <div style={{ position: 'relative' }}>
+            <Button variant="ghost" iconLeft="sliders" onClick={() => setColMenuOpen((v) => !v)}>
+              Columns {hiddenCols.size > 0 ? `(${allColumns.length - hiddenCols.size}/${allColumns.length})` : ''}
+            </Button>
+            {colMenuOpen && (
+              <div
+                className="col-visibility-menu"
+                onMouseLeave={() => setColMenuOpen(false)}
+              >
+                <div className="col-visibility-header">
+                  <span>Show columns</span>
+                  <button type="button" className="col-visibility-reset" onClick={showAllCols}>
+                    Show all
+                  </button>
+                </div>
+                {allColumns.map((c) => (
+                  <label key={c.key} className="col-visibility-item">
+                    <input
+                      type="checkbox"
+                      checked={!hiddenCols.has(c.key)}
+                      onChange={() => toggleCol(c.key)}
+                    />
+                    <span>{c.label}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
           <Button variant="ghost" iconLeft="download" onClick={handleCsvExport}>
             Export CSV
           </Button>

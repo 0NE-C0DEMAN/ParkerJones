@@ -13,16 +13,24 @@
       const today0 = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
       const week0 = today0 - 6 * 86400000;
 
-      let todayCount = 0, weekCount = 0, totalValue = 0, openCount = 0;
+      let todayCount = 0, weekCount = 0, totalValue = 0, openCount = 0, weekValue = 0;
+      const suppliers = new Set();
       records.forEach((r) => {
         const t = r.added_at ? new Date(r.added_at).getTime() : 0;
         if (t >= today0) todayCount += 1;
-        if (t >= week0) weekCount += 1;
+        if (t >= week0) {
+          weekCount += 1;
+          weekValue += Number(r.total) || 0;
+        }
         totalValue += Number(r.total) || 0;
         if (r.status && !['invoiced', 'closed'].includes(r.status)) openCount += 1;
+        if (r.supplier) suppliers.add(r.supplier);
       });
 
-      return { todayCount, weekCount, totalValue, count: records.length, openCount };
+      return {
+        todayCount, weekCount, weekValue, totalValue,
+        count: records.length, openCount, supplierCount: suppliers.size,
+      };
     }, [records]);
 
     return (
@@ -31,7 +39,7 @@
           <Stat label="Captured today" value={stats.todayCount} meta={`${stats.weekCount} this week`} icon="upload-cloud" />
           <Stat label="Total in ledger" value={stats.count} meta={`${formatCurrency(stats.totalValue)} total value`} icon="rows" />
           <Stat label="Open POs" value={stats.openCount} meta="Not yet invoiced or closed" icon="package" />
-          <Stat label="Active reps" value="—" meta="Multi-user via login" icon="users" />
+          <Stat label="Suppliers" value={stats.supplierCount} meta={`${formatCurrency(stats.weekValue)} value this week`} icon="briefcase" />
         </StatGrid>
 
         <div className="ai-banner">

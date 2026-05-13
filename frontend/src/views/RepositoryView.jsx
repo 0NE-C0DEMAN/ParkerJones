@@ -15,6 +15,11 @@
     { id: 'pending-ack',  label: 'Pending ack',    filter: (r) => (r.status || 'received') === 'received' },
     { id: 'in-progress',  label: 'In progress',    filter: (r) => r.status === 'in_progress' },
     { id: 'shipped',      label: 'Shipped',        filter: (r) => r.status === 'shipped' },
+    { id: 'this-week',    label: 'This week',      filter: (r) => {
+        const t = r.added_at ? new Date(r.added_at).getTime() : 0;
+        return t >= Date.now() - 7 * 86400000;
+      },
+    },
     { id: 'high-value',   label: 'Over $50k',      filter: (r) => Number(r.total || 0) > 50000 },
     { id: 'mine',         label: 'Created by me',  filter: (r, ctx) => r.created_by_email === ctx.userEmail },
   ];
@@ -57,10 +62,16 @@
           (r.po_number || '').toLowerCase().includes(q) ||
           (r.customer || '').toLowerCase().includes(q) ||
           (r.supplier || '').toLowerCase().includes(q) ||
+          (r.supplier_code || '').toLowerCase().includes(q) ||
+          (r.buyer || '').toLowerCase().includes(q) ||
+          (r.buyer_email || '').toLowerCase().includes(q) ||
+          (r.quote_number || '').toLowerCase().includes(q) ||
+          (r.contract_number || '').toLowerCase().includes(q) ||
           (r.line_items || []).some((it) =>
             (it.description || '').toLowerCase().includes(q) ||
             (it.vendor_part || '').toLowerCase().includes(q) ||
-            (it.customer_part || '').toLowerCase().includes(q)
+            (it.customer_part || '').toLowerCase().includes(q) ||
+            (it.notes || '').toLowerCase().includes(q)
           )
         );
       }
@@ -72,6 +83,7 @@
           case 'po_number': va = a.po_number || ''; vb = b.po_number || ''; break;
           case 'customer': va = (a.customer || '').toLowerCase(); vb = (b.customer || '').toLowerCase(); break;
           case 'supplier': va = (a.supplier || '').toLowerCase(); vb = (b.supplier || '').toLowerCase(); break;
+          case 'buyer':    va = (a.buyer || '').toLowerCase();    vb = (b.buyer || '').toLowerCase();    break;
           case 'po_date': va = a.po_date || ''; vb = b.po_date || ''; break;
           case 'total': va = Number(a.total) || 0; vb = Number(b.total) || 0; break;
           case 'line_count': va = (a.line_items || []).length; vb = (b.line_items || []).length; break;
@@ -162,7 +174,7 @@
           <SearchInput
             value={query}
             onChange={setQuery}
-            placeholder="Search PO #, customer, supplier, or part..."
+            placeholder="Search PO #, supplier #, buyer, quote #, contract #, part, description..."
           />
           <select className="select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ width: 'auto', minWidth: 150 }}>
             <option value="all">All statuses ({records.length})</option>
