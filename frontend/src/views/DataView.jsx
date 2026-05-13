@@ -16,9 +16,11 @@
    ========================================================================== */
 (() => {
   'use strict';
-  const { useState, useMemo, useCallback } = React;
+  const { useState, useMemo, useCallback, useEffect } = React;
   const { formatCurrency, truncate } = window.App.utils;
   const _A = () => window.App;
+
+  const ROWS_PER_PAGE = 20;
 
   function DataView({ records, onEdit, onDownload }) {
     const { Icon, Button, EmptyState, StatusPill, SearchInput, Segmented } = _A();
@@ -26,6 +28,7 @@
     const [sortKey, setSortKey] = useState('updated_at');
     const [sortDir, setSortDir] = useState('desc');
     const [query, setQuery] = useState('');
+    const [page, setPage] = useState(0);
 
     /* ----- filter ----- */
     const filtered = useMemo(() => {
@@ -54,6 +57,17 @@
       });
       return arr;
     }, [filtered, sortKey, sortDir]);
+
+    /* ----- pagination ----- */
+    const totalPages = Math.max(1, Math.ceil(sorted.length / ROWS_PER_PAGE));
+    const safePage = Math.min(page, totalPages - 1);
+    const pageStart = safePage * ROWS_PER_PAGE;
+    const pageEnd = Math.min(pageStart + ROWS_PER_PAGE, sorted.length);
+    const paged = useMemo(() => sorted.slice(pageStart, pageEnd), [sorted, pageStart, pageEnd]);
+
+    // Reset to page 1 when the filter or sort changes — otherwise the rep
+    // could be stuck on page 5 of a now-empty filtered result.
+    useEffect(() => { setPage(0); }, [query, sortKey, sortDir]);
 
     const handleSort = useCallback((key) => {
       setSortKey((curr) => {
@@ -162,7 +176,7 @@
                 </tr>
               </thead>
               <tbody>
-                {sorted.map((r) => (
+                {paged.map((r) => (
                   <Row
                     key={r.id}
                     record={r}
@@ -183,10 +197,35 @@
             <span>{sorted.reduce((s, r) => s + (r.line_items || []).length, 0)} line items</span>
             <span>·</span>
             <span>{formatCurrency(sorted.reduce((s, r) => s + (Number(r.total) || 0), 0))} total</span>
-            <span className="dv-footer-sep">·</span>
-            <span>Click a row to expand · headers to sort · type to filter</span>
             <div style={{ flex: 1 }} />
-            <span className="dv-footer-hint">PO # frozen ←</span>
+            <div className="dv-pagination">
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                disabled={safePage === 0}
+                title="Previous page"
+              >
+                <Icon name="chevron-left" size={12} />
+                Prev
+              </button>
+              <span className="dv-pagination-info">
+                Page {safePage + 1} of {totalPages}
+                {sorted.length > 0 && (
+                  <span className="dv-pagination-range">
+                    · {pageStart + 1}–{pageEnd} of {sorted.length}
+                  </span>
+                )}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                disabled={safePage >= totalPages - 1}
+                title="Next page"
+              >
+                Next
+                <Icon name="chevron-right" size={12} />
+              </button>
+            </div>
           </div>
         </div>
       </div>
