@@ -174,8 +174,26 @@ def _effective_llm_api_key() -> tuple[str, str]:
 
 @app.get("/", response_class=HTMLResponse)
 def index():
+    """The bundled single-page app.
+
+    Every JS/JSX source is inlined into this HTML response by
+    frontend_html.build_app_html, so the entire frontend's "version" is
+    really the version of this HTML. We disable browser caching for it
+    so that pushing new code to the Space takes effect on the rep's
+    next reload — no stale bundle, no manual hard-refresh required.
+    Long-term-cacheable CDN scripts (React, Babel, pdf.js, Google Fonts)
+    are referenced from outside this response and still cache normally.
+    """
     key, _source = _effective_llm_api_key()
-    return frontend_html.build_app_html(api_key=key)
+    html = frontend_html.build_app_html(api_key=key)
+    return HTMLResponse(
+        content=html,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 # ============================================================================
