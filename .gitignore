@@ -17,6 +17,7 @@ users.yaml
 
 # Local / IDE
 .cursor/
+.claude/
 *.log
 
 # OS

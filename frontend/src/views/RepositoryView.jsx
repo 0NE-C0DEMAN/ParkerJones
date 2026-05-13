@@ -193,11 +193,8 @@
             ]}
           />
           <div className="flex-1" />
-          {records.length > 0 && (
-            <Button variant="primary" iconLeft="download" onClick={onDownload}>
-              Export Excel
-            </Button>
-          )}
+          {/* Export Excel lives in the global topbar — don't duplicate it
+              in the Ledger toolbar. */}
         </div>
 
         {selectedIds.size > 0 && (

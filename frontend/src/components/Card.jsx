@@ -1,16 +1,41 @@
 /* ==========================================================================
    Card.jsx — Container with optional header/body/footer.
+   NOTE: Avoids `...rest` destructure (see Button.jsx for the babel-standalone
+   `_excluded` collision story).
    ========================================================================== */
 (() => {
   'use strict';
   const { cn } = window.App.utils;
 
-  function Card({ children, className = '', noPadding = false, ...rest }) {
-    return <div className={cn('card', className)} {...rest}>{noPadding ? children : <div className="card-body">{children}</div>}</div>;
+  function Card(props) {
+    const children = props.children;
+    const className = props.className ?? '';
+    const noPadding = props.noPadding ?? false;
+    return (
+      <div
+        className={cn('card', className)}
+        style={props.style}
+        onClick={props.onClick}
+        id={props.id}
+      >
+        {noPadding ? children : <div className="card-body">{children}</div>}
+      </div>
+    );
   }
 
-  function CardRaw({ children, className = '', ...rest }) {
-    return <div className={cn('card', className)} {...rest}>{children}</div>;
+  function CardRaw(props) {
+    const children = props.children;
+    const className = props.className ?? '';
+    return (
+      <div
+        className={cn('card', className)}
+        style={props.style}
+        onClick={props.onClick}
+        id={props.id}
+      >
+        {children}
+      </div>
+    );
   }
 
   function CardHeader({ icon, title, subtitle, actions, children, className = '' }) {

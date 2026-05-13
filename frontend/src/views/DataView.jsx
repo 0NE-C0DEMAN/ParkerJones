@@ -134,14 +134,12 @@
           <Button variant="ghost" iconLeft={allExpanded ? 'chevron-down' : 'chevron-right'} onClick={expandAll}>
             {allExpanded ? 'Collapse all' : 'Expand all'}
           </Button>
+          {/* Export Excel lives in the global topbar — don't duplicate it
+              here. CSV stays because it's Data-view-specific (flattened
+              line items, copy-into-Excel format). */}
           <Button variant="ghost" iconLeft="download" onClick={handleCsvExport}>
             Export CSV
           </Button>
-          {onDownload && (
-            <Button variant="primary" iconLeft="download" onClick={onDownload}>
-              Export Excel
-            </Button>
-          )}
         </div>
 
         <div className="dv-card">
@@ -362,8 +360,14 @@
             emptyText="No bill-to address." />
         </div>
 
-        {/* Row 3: PO Notes (3/4) + Audit (1/4) side-by-side. If no notes,
-            Audit takes the full row by itself. */}
+        {/* Line items mini-table — sits above the notes/audit footer so
+            the line items table flows directly out of the address cards. */}
+        {lineItems.length > 0 && <LineItemsSection items={lineItems} currency={r.currency} />}
+
+        {/* Footer row: PO Notes (3/4) + Audit (1/4) side-by-side. If no
+            notes, Audit takes the full row by itself. Lives below the
+            line items table — the operationally important stuff (qty,
+            prices, descriptions) is now closer to the row header. */}
         {r.notes ? (
           <div className="dv-panel-row notes-audit">
             <NotesCard notes={r.notes} />
@@ -372,9 +376,6 @@
         ) : (
           <AuditCard record={r} />
         )}
-
-        {/* Line items mini-table */}
-        {lineItems.length > 0 && <LineItemsSection items={lineItems} currency={r.currency} />}
 
         {/* Action row */}
         <div className="dv-panel-actions">

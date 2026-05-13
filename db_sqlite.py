@@ -260,8 +260,38 @@ def set_user_active(user_id: str, active: bool) -> None:
 # POs
 # =============================================================================
 
+# Columns that were added later via ALTER TABLE without a NOT NULL DEFAULT,
+# so older rows may have NULL there. The Pydantic PORecord model declares
+# them as `str = ""` and will 500 on validation if it gets None. Coalesce
+# defensively at the row-read boundary so the API never has to think about
+# this drift between the SQLite schema and the wire model.
+_PO_NULLABLE_STR_COLS = (
+    "po_date", "revision", "customer", "customer_address",
+    "supplier", "supplier_code", "supplier_address",
+    "bill_to", "ship_to",
+    "payment_terms", "freight_terms", "ship_via", "fob_terms",
+    "buyer", "buyer_email", "buyer_phone",
+    "receiving_contact", "receiving_contact_phone",
+    "quote_number", "contract_number",
+    "currency", "filename", "notes", "status", "extraction_method",
+    "created_by_id", "created_by_email",
+    "updated_by_id", "updated_by_email",
+)
+_LINE_NULLABLE_STR_COLS = (
+    "customer_part", "vendor_part", "description",
+    "uom", "required_date", "notes",
+)
+
+
+def _coalesce_strs(d: dict, cols) -> dict:
+    for c in cols:
+        if d.get(c) is None:
+            d[c] = ""
+    return d
+
+
 def _row_to_po(row: sqlite3.Row, line_items: list[dict]) -> dict:
-    d = dict(row)
+    d = _coalesce_strs(dict(row), _PO_NULLABLE_STR_COLS)
     d["line_items"] = line_items
     return d
 
@@ -271,7 +301,7 @@ def _list_lines(conn: sqlite3.Connection, po_id: str) -> list[dict]:
         "SELECT * FROM line_items WHERE po_id = ? ORDER BY line",
         (po_id,),
     )
-    return [dict(r) for r in cur.fetchall()]
+    return [_coalesce_strs(dict(r), _LINE_NULLABLE_STR_COLS) for r in cur.fetchall()]
 
 
 def list_pos(query: str = "", period: str = "all", status: str = "all", created_by_id: str | None = None) -> list[dict]:

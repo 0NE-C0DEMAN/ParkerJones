@@ -82,7 +82,10 @@
 
     return (
       <div className="view">
-        <div className="settings-grid">
+        {/* Team is a single full-width card — don't wrap it in .settings-grid
+            (a 2-col layout), which would leave the right column empty and
+            squash the user table into half the viewport. */}
+        <div className="team-wrap">
           <Card noPadding>
             <CardHeader
               title={`Team members (${data.users.length})`}

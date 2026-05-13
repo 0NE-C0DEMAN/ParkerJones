@@ -28,7 +28,14 @@
     }
   }
 
-  function Autocomplete({ value, onChange, field, placeholder, className = '', ...rest }) {
+  // NOTE: Avoids `...rest` destructure (see Button.jsx) — explicit forwarding
+  // of the input attrs we actually use.
+  function Autocomplete(props) {
+    const value = props.value;
+    const onChange = props.onChange;
+    const field = props.field;
+    const placeholder = props.placeholder;
+    const className = props.className ?? '';
     const [suggestions, setSuggestions] = useState([]);
     const [open, setOpen] = useState(false);
     const [loaded, setLoaded] = useState(false);
@@ -71,7 +78,14 @@
           onFocus={() => { loadIfNeeded(); setOpen(true); }}
           placeholder={placeholder}
           autoComplete="off"
-          {...rest}
+          onBlur={props.onBlur}
+          onKeyDown={props.onKeyDown}
+          disabled={props.disabled}
+          readOnly={props.readOnly}
+          name={props.name}
+          id={props.id}
+          style={props.style}
+          aria-label={props['aria-label']}
         />
         {open && filtered.length > 0 && (
           <div className="autocomplete-menu">
