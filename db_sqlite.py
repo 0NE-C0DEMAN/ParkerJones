@@ -281,6 +281,12 @@ _LINE_NULLABLE_STR_COLS = (
     "customer_part", "vendor_part", "description",
     "uom", "required_date", "notes",
 )
+# Numeric columns that can be NULL in older rows (the LLM may have
+# skipped quantity/unit_price/amount on a stray line). Pydantic models
+# them as `float = 0` — None would 500. Coalesce NULL → 0 here so the
+# API returns clean numbers and the UI doesn't render blank cells.
+_PO_NULLABLE_NUM_COLS = ("total", "has_source")
+_LINE_NULLABLE_NUM_COLS = ("line", "quantity", "unit_price", "amount")
 
 
 def _coalesce_strs(d: dict, cols) -> dict:
@@ -290,8 +296,17 @@ def _coalesce_strs(d: dict, cols) -> dict:
     return d
 
 
+def _coalesce_nums(d: dict, cols) -> dict:
+    for c in cols:
+        if d.get(c) is None:
+            d[c] = 0
+    return d
+
+
 def _row_to_po(row: sqlite3.Row, line_items: list[dict]) -> dict:
-    d = _coalesce_strs(dict(row), _PO_NULLABLE_STR_COLS)
+    d = dict(row)
+    _coalesce_strs(d, _PO_NULLABLE_STR_COLS)
+    _coalesce_nums(d, _PO_NULLABLE_NUM_COLS)
     d["line_items"] = line_items
     return d
 
@@ -301,7 +316,13 @@ def _list_lines(conn: sqlite3.Connection, po_id: str) -> list[dict]:
         "SELECT * FROM line_items WHERE po_id = ? ORDER BY line",
         (po_id,),
     )
-    return [_coalesce_strs(dict(r), _LINE_NULLABLE_STR_COLS) for r in cur.fetchall()]
+    out = []
+    for r in cur.fetchall():
+        d = dict(r)
+        _coalesce_strs(d, _LINE_NULLABLE_STR_COLS)
+        _coalesce_nums(d, _LINE_NULLABLE_NUM_COLS)
+        out.append(d)
+    return out
 
 
 def list_pos(query: str = "", period: str = "all", status: str = "all", created_by_id: str | None = None) -> list[dict]:

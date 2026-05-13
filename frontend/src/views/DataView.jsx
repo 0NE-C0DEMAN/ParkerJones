@@ -518,7 +518,8 @@
                   <td className="dv-mono">{it.customer_part || '—'}</td>
                   <td className="dv-mono">{it.vendor_part || '—'}</td>
                   <td className="dv-li-desc-cell">{it.description || ''}</td>
-                  <td className="dv-col-num">{it.quantity || 0}</td>
+                  {/* Coerce: handles null/string/NaN — always shows a number. */}
+                  <td className="dv-col-num">{Number.isFinite(Number(it.quantity)) ? Number(it.quantity).toLocaleString() : 0}</td>
                   <td>{it.uom || ''}</td>
                   <td className="dv-col-num">{formatCurrency(it.unit_price, currency)}</td>
                   <td className="dv-col-num dv-strong">{formatCurrency(it.amount, currency)}</td>
