@@ -277,11 +277,11 @@
           <td className="dv-frz dv-c-po dv-mono" title={record.po_number}>
             {record.po_number}
           </td>
-          <td title={record.customer}>{record.customer || ''}</td>
-          <td title={record.supplier}>{record.supplier || ''}</td>
+          <td title={record.customer}>{record.customer || '—'}</td>
+          <td title={record.supplier}>{record.supplier || '—'}</td>
           <td title={record.po_date}>{fmtDate(record.po_date)}</td>
-          <td title={record.buyer}>{record.buyer || ''}</td>
-          <td title={record.payment_terms}>{record.payment_terms || ''}</td>
+          <td title={record.buyer}>{record.buyer || '—'}</td>
+          <td title={record.payment_terms}>{record.payment_terms || '—'}</td>
           <td className="dv-col-num">{(record.line_items || []).length}</td>
           <td className="dv-col-num dv-strong">{formatCurrency(record.total, record.currency)}</td>
           <td onClick={(e) => e.stopPropagation()}>
@@ -514,17 +514,20 @@
             <tbody>
               {items.map((it, idx) => (
                 <tr key={it.line || idx}>
-                  <td className="dv-col-num">{it.line || ''}</td>
+                  {/* Every cell renders something visible — '—' for empty
+                      strings, a numeric fallback for numbers, formatted
+                      currency that already returns '—' for missing values.
+                      A reps's eye should never see a blank cell. */}
+                  <td className="dv-col-num">{Number(it.line) || (idx + 1)}</td>
                   <td className="dv-mono">{it.customer_part || '—'}</td>
                   <td className="dv-mono">{it.vendor_part || '—'}</td>
-                  <td className="dv-li-desc-cell">{it.description || ''}</td>
-                  {/* Coerce: handles null/string/NaN — always shows a number. */}
+                  <td className="dv-li-desc-cell">{it.description || '—'}</td>
                   <td className="dv-col-num">{Number.isFinite(Number(it.quantity)) ? Number(it.quantity).toLocaleString() : 0}</td>
-                  <td>{it.uom || ''}</td>
+                  <td>{it.uom || 'EA'}</td>
                   <td className="dv-col-num">{formatCurrency(it.unit_price, currency)}</td>
                   <td className="dv-col-num dv-strong">{formatCurrency(it.amount, currency)}</td>
                   <td>{fmtDate(it.required_date)}</td>
-                  <td className="dv-li-notes-cell">{it.notes || ''}</td>
+                  <td className="dv-li-notes-cell">{it.notes || '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -546,28 +549,31 @@
     return String(v == null ? '' : v).toLowerCase();
   }
 
+  // Date helpers — always return SOMETHING visible. '—' is the universal
+  // empty marker across the app; never let a cell go blank because a
+  // field is missing or unparseable.
   function fmtDate(v) {
-    if (!v) return '';
+    if (!v) return '—';
     const d = new Date(v);
-    if (Number.isNaN(d.getTime())) return '';
+    if (Number.isNaN(d.getTime())) return '—';
     const dd = String(d.getDate()).padStart(2, '0');
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const yyyy = d.getFullYear();
     return `${dd}/${mm}/${yyyy}`;
   }
   function fmtDateShort(v) {
-    if (!v) return '';
+    if (!v) return '—';
     const d = new Date(v);
-    if (Number.isNaN(d.getTime())) return '';
+    if (Number.isNaN(d.getTime())) return '—';
     const dd = String(d.getDate()).padStart(2, '0');
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const yy = String(d.getFullYear()).slice(-2);
     return `${dd}/${mm}/${yy}`;
   }
   function relTime(v) {
-    if (!v) return '';
+    if (!v) return '—';
     const t = new Date(v).getTime();
-    if (Number.isNaN(t)) return '';
+    if (Number.isNaN(t)) return '—';
     const s = Math.floor((Date.now() - t) / 1000);
     if (s < 60) return 'just now';
     if (s < 3600) return Math.floor(s / 60) + 'm ago';

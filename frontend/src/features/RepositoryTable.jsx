@@ -222,15 +222,15 @@
                       </tr>
                     </thead>
                     <tbody>
-                      {(record.line_items || []).map((it) => (
-                        <tr key={it.line}>
-                          <td className="col-num">{it.line}</td>
+                      {(record.line_items || []).map((it, idx) => (
+                        <tr key={it.line || idx}>
+                          <td className="col-num">{Number(it.line) || (idx + 1)}</td>
                           <td style={{ fontFamily: 'JetBrains Mono', fontSize: 11.5 }}>{it.customer_part || '—'}</td>
                           <td style={{ fontFamily: 'JetBrains Mono', fontSize: 11.5 }}>{it.vendor_part || '—'}</td>
-                          <td title={it.description}>{truncate(it.description, 60)}</td>
+                          <td title={it.description}>{truncate(it.description || '—', 60)}</td>
                           {/* Coerce so null/undefined/missing renders 0 instead of going blank. */}
                           <td className="col-num">{Number.isFinite(Number(it.quantity)) ? Number(it.quantity).toLocaleString() : 0}</td>
-                          <td>{it.uom || '—'}</td>
+                          <td>{it.uom || 'EA'}</td>
                           <td className="col-num">{formatCurrency(it.unit_price, record.currency)}</td>
                           <td className="col-num" style={{ fontWeight: 600 }}>{formatCurrency(it.amount, record.currency)}</td>
                           <td>{formatDate(it.required_date)}</td>

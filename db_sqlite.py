@@ -13,6 +13,7 @@ dead simple.
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -386,8 +387,43 @@ def find_by_po_number(po_number: str) -> dict | None:
         return _row_to_po(row, _list_lines(conn, row["id"]))
 
 
+_NUM_RE = re.compile(r"-?\d+(?:[.,]\d+)?")
+
+
+def _safe_float(v) -> float:
+    """Tolerant number parse — survives the LLM occasionally returning
+    "450 EA", "1,500.00", or a stray currency symbol where the schema
+    asks for a plain number. Returns 0.0 if nothing numeric is found."""
+    if v is None or v == "":
+        return 0.0
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = str(v).strip().replace(",", "")
+    try:
+        return float(s)
+    except (TypeError, ValueError):
+        m = _NUM_RE.search(s)
+        if m:
+            try:
+                return float(m.group(0).replace(",", ""))
+            except (TypeError, ValueError):
+                return 0.0
+        return 0.0
+
+
+def _safe_int(v) -> int:
+    return int(_safe_float(v))
+
+
 def _insert_line_items(conn: sqlite3.Connection, po_id: str, items: Iterable[dict]) -> None:
-    for it in items:
+    # `enumerate` provides a guaranteed line number even if the LLM omits
+    # it or returns 0 — a rep should never see a blank `#` cell.
+    for idx, it in enumerate(items, start=1):
+        # Try to keep an LLM-provided line number if it's a real positive
+        # integer; otherwise fall back to positional index.
+        line_num = _safe_int(it.get("line"))
+        if line_num <= 0:
+            line_num = idx
         conn.execute(
             """
             INSERT INTO line_items (id, po_id, line, customer_part, vendor_part,
@@ -398,14 +434,14 @@ def _insert_line_items(conn: sqlite3.Connection, po_id: str, items: Iterable[dic
             (
                 str(uuid.uuid4()),
                 po_id,
-                int(it.get("line") or 0),
+                line_num,
                 str(it.get("customer_part") or ""),
                 str(it.get("vendor_part") or ""),
                 str(it.get("description") or ""),
-                float(it.get("quantity") or 0),
+                _safe_float(it.get("quantity")),
                 str(it.get("uom") or "EA"),
-                float(it.get("unit_price") or 0),
-                float(it.get("amount") or 0),
+                _safe_float(it.get("unit_price")),
+                _safe_float(it.get("amount")),
                 str(it.get("required_date") or ""),
                 str(it.get("notes") or ""),
             ),
@@ -457,7 +493,7 @@ def create_po(data: dict, *, created_by_id: str | None = None, created_by_email:
                 str(data.get("quote_number") or ""),
                 str(data.get("contract_number") or ""),
                 str(data.get("currency") or "USD"),
-                float(data.get("total") or 0),
+                _safe_float(data.get("total")),
                 str(data.get("filename") or ""),
                 str(data.get("notes") or ""),
                 str(data.get("status") or "received"),
@@ -518,7 +554,7 @@ def update_po(po_id: str, data: dict, *, updated_by_id: str | None = None, updat
                 str(data.get("quote_number") or ""),
                 str(data.get("contract_number") or ""),
                 str(data.get("currency") or "USD"),
-                float(data.get("total") or 0),
+                _safe_float(data.get("total")),
                 str(data.get("filename") or ""),
                 str(data.get("notes") or ""),
                 str(data.get("status") or "received"),
