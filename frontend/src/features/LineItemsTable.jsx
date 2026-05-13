@@ -107,10 +107,25 @@
   }
 
   function CellInput({ value, onChange, type = 'text', placeholder }) {
+    // Always derive a renderable value so number inputs never appear blank
+    // when the LLM dropped a field (the previous bug: missing qty → input
+    // value={undefined}/{null}/{''} → empty input that looked unfilled).
+    let renderValue;
+    if (type === 'number') {
+      const n = Number(value);
+      renderValue = Number.isFinite(n) ? n : 0;
+    } else if (type === 'date') {
+      // HTML date inputs require strict YYYY-MM-DD; otherwise they render blank
+      renderValue = (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value))
+        ? value.slice(0, 10)
+        : '';
+    } else {
+      renderValue = value ?? '';
+    }
     return (
       <input
         type={type}
-        value={value ?? ''}
+        value={renderValue}
         onChange={(e) => onChange?.(e.target.value)}
         placeholder={placeholder}
       />

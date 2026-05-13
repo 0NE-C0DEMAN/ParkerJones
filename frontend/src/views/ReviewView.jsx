@@ -41,7 +41,38 @@
 
   function ReviewForm({ pending, onConfirm, onSaveAsNew, onDiscard }) {
     const { POHeader, AddressBlock, LineItemsTable, PdfPreview, Icon, Button, Field, Input, Textarea, Card, StatusChooser, Autocomplete } = _A();
-    const [data, setData] = useState(pending.data);
+
+    // Normalize incoming data so the form NEVER starts with null/undefined
+    // numeric fields — those used to render as blank inputs (the bug Parker
+    // hit when opening Edit on a PO whose qty had been dropped during
+    // extraction). Belt-and-suspenders with CellInput's render-time guard.
+    const normalizeForEdit = (raw) => {
+      if (!raw) return raw;
+      const safeNum = (v) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+      };
+      const items = Array.isArray(raw.line_items) ? raw.line_items : [];
+      return {
+        ...raw,
+        total: safeNum(raw.total),
+        line_items: items.map((it, idx) => ({
+          ...it,
+          line: safeNum(it.line) || (idx + 1),
+          quantity: safeNum(it.quantity),
+          unit_price: safeNum(it.unit_price),
+          amount: safeNum(it.amount),
+          uom: it.uom || 'EA',
+          customer_part: it.customer_part ?? '',
+          vendor_part: it.vendor_part ?? '',
+          description: it.description ?? '',
+          required_date: it.required_date ?? '',
+          notes: it.notes ?? '',
+        })),
+      };
+    };
+
+    const [data, setData] = useState(() => normalizeForEdit(pending.data));
     const isEdit = !!pending.isEdit;
     const duplicate = pending.duplicate;
 
@@ -51,7 +82,7 @@
     // file/filename so newly extracted POs (no id yet) still trigger.
     const formKey = pending?.id || pending?.file?.name || pending?.filename || '';
     useEffect(() => {
-      setData(pending.data);
+      setData(normalizeForEdit(pending.data));
        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [formKey]);
 
