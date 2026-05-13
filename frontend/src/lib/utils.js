@@ -17,27 +17,11 @@
     }).format(n);
   }
 
-  function formatNumber(value) {
-    if (value === null || value === undefined || value === '') return '—';
-    const n = Number(value);
-    if (!Number.isFinite(n)) return '—';
-    return new Intl.NumberFormat('en-US').format(n);
-  }
-
   function formatDate(input) {
     if (!input) return '—';
     const d = typeof input === 'string' ? new Date(input) : input;
     if (Number.isNaN(d.getTime())) return '—';
     return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-  }
-
-  function formatDateInput(input) {
-    if (!input) return '';
-    const d = typeof input === 'string' ? new Date(input) : input;
-    if (Number.isNaN(d.getTime())) return '';
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${d.getFullYear()}-${m}-${day}`;
   }
 
   function formatDateTime(input) {
@@ -120,15 +104,14 @@
   }
 
   window.App = window.App || {};
+  // `fileExtension` is intentionally kept internal — used by
+  // fileTypeBadge / isAcceptableFile within this file only.
   window.App.utils = {
     formatCurrency,
-    formatNumber,
     formatDate,
-    formatDateInput,
     formatDateTime,
     relativeTime,
     cn,
-    fileExtension,
     fileSize,
     uuid,
     lineItemsTotal,

@@ -1,8 +1,14 @@
 /* ==========================================================================
-   pdfParser.js — Extract text from a PDF file in the browser via pdf.js.
-   Falls back to reading raw text for .txt / .csv / .md. Scanned PDFs are
-   detected by `isLikelyScanned` and routed to the vision LLM path
-   instead of OCR.
+   pdfParser.js — Browser-side pdf.js helpers.
+     - readFile()             text extraction fallback when the server's
+                              pdfplumber endpoint is unreachable
+     - renderPagesToImages()  rasterise pages to PNG for the hybrid /
+                              vision LLM paths in mockApi.js
+     - getPdfPageCount()      cheap page count without rendering
+
+   Plain-text inputs (.txt / .csv / .md) are read directly. The scanned-PDF
+   detection used to live here but moved into the deterministic
+   "any text from pdfplumber → text path" check in mockApi.js.
    ========================================================================== */
 (() => {
   'use strict';
@@ -142,22 +148,10 @@
     return pdf.numPages;
   }
 
-  /**
-   * Heuristic: a PDF is "scanned" (image-only) when text extraction yields
-   * dramatically less than expected per page. Threshold: <40 chars/page.
-   */
-  function isLikelyScanned(parsed) {
-    if (!parsed || !parsed.text) return true;
-    const perPage = parsed.text.length / Math.max(1, parsed.pageCount || 1);
-    return perPage < 40;
-  }
-
   window.App = window.App || {};
   window.App.pdfParser = {
-    extractPdfText,
     readFile,
     renderPagesToImages,
-    isLikelyScanned,
     getPdfPageCount,
   };
 })();
