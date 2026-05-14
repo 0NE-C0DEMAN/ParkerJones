@@ -257,6 +257,71 @@
     return u;
   }
 
+  // ----- field normalizers — apply at the extraction → save boundary -----
+  //
+  // Goals: clean the noisy values LLMs and PDFs emit so the DB stores
+  // ONE canonical form and the UI never has to render `Phone#: (919)
+  // 876-4603 ext. 0042 ` style raw fragments. Conservative: when the
+  // input doesn't fit the expected shape, pass it through cleaned but
+  // un-reformatted rather than risk producing garbage.
+
+  /** Strip label prefixes ("Phone#:", "Tel:", "Fax:"), pull digits, and
+   *  re-format US 10-digit numbers as "(XXX) XXX-XXXX". Foreign / extension
+   *  / non-US shapes pass through with just the leading label removed. */
+  function normPhone(raw) {
+    if (!raw) return '';
+    // Strip leading labels (Phone#:, Tel:, Fax:, p:, cell:, mobile:, mob:)
+    let s = String(raw).replace(/^\s*(phone|tel|fax|p|cell|mobile|mob)\s*[#:.]*\s*/i, '').trim();
+    if (!s) return '';
+    // Pull just digits; strip the leading US country code 1 if it's 11 digits.
+    const digits = s.replace(/\D/g, '');
+    const ten = (digits.length === 11 && digits.startsWith('1')) ? digits.slice(1) : digits;
+    if (ten.length === 10) {
+      return `(${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}`;
+    }
+    // Not a clean 10-digit US number — return the label-stripped form so we
+    // don't mangle international / extension-bearing values.
+    return s;
+  }
+
+  /** Lowercase + trim. Empty if not roughly email-shaped. */
+  function normEmail(raw) {
+    if (!raw) return '';
+    const s = String(raw).trim().toLowerCase();
+    if (!s) return '';
+    // Reject obvious non-emails — drop "Email:" prefixes; reject anything
+    // missing a dot in the domain.
+    const cleaned = s.replace(/^email\s*[:.]*\s*/i, '');
+    if (!/^\S+@\S+\.\S+$/.test(cleaned)) return cleaned; // pass through ugly inputs; UI renders as-is
+    return cleaned;
+  }
+
+  /** Trim, collapse internal whitespace runs. */
+  function normPONumber(raw) {
+    if (!raw) return '';
+    return String(raw).trim().replace(/\s+/g, ' ');
+  }
+
+  /** Uppercase 3-letter currency code; default USD when missing/unreadable. */
+  function normCurrency(raw) {
+    if (!raw) return 'USD';
+    const s = String(raw).trim().toUpperCase();
+    return /^[A-Z]{3}$/.test(s) ? s : 'USD';
+  }
+
+  /** Per-line trim + collapse blank-line clusters in multi-line addresses
+   *  (some templates pad addresses with extra newlines). Preserves the
+   *  meaningful line structure. */
+  function normMultiline(raw) {
+    if (!raw) return '';
+    return String(raw)
+      .split(/\r?\n/)
+      .map((line) => line.replace(/\s+$/, ''))    // strip trailing whitespace
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')                 // collapse 3+ blank lines
+      .replace(/^\s+|\s+$/g, '');                 // trim outer
+  }
+
   function normalize(data) {
     const items = Array.isArray(data?.line_items) ? data.line_items : [];
 
@@ -312,31 +377,31 @@
     const total = Number.isFinite(reportedTotal) && reportedTotal > 0 ? reportedTotal : +computedTotal.toFixed(2);
 
     return {
-      po_number: String(data?.po_number || '').trim(),
+      po_number: normPONumber(data?.po_number),
       po_date: normDate(data?.po_date),
       revision: String(data?.revision || '').trim(),
       customer: String(data?.customer || '').trim(),
-      customer_address: String(data?.customer_address || '').trim(),
+      customer_address: normMultiline(data?.customer_address),
       supplier: String(data?.supplier || '').trim(),
-      supplier_code: String(data?.supplier_code || '').trim(),
-      supplier_address: String(data?.supplier_address || '').trim(),
-      bill_to: String(data?.bill_to || '').trim(),
-      ship_to: String(data?.ship_to || '').trim(),
+      supplier_code: String(data?.supplier_code || '').trim().replace(/\s+/g, ''),
+      supplier_address: normMultiline(data?.supplier_address),
+      bill_to: normMultiline(data?.bill_to),
+      ship_to: normMultiline(data?.ship_to),
       payment_terms: String(data?.payment_terms || '').trim(),
       freight_terms: String(data?.freight_terms || '').trim(),
       ship_via: String(data?.ship_via || '').trim(),
       fob_terms: String(data?.fob_terms || '').trim(),
       buyer: String(data?.buyer || '').trim(),
-      buyer_email: String(data?.buyer_email || '').trim(),
-      buyer_phone: String(data?.buyer_phone || '').trim(),
+      buyer_email: normEmail(data?.buyer_email),
+      buyer_phone: normPhone(data?.buyer_phone),
       receiving_contact: String(data?.receiving_contact || '').trim(),
-      receiving_contact_phone: String(data?.receiving_contact_phone || '').trim(),
+      receiving_contact_phone: normPhone(data?.receiving_contact_phone),
       quote_number: String(data?.quote_number || '').trim(),
       contract_number: String(data?.contract_number || '').trim(),
-      currency: String(data?.currency || 'USD').trim(),
+      currency: normCurrency(data?.currency),
       line_items: normalized_items,
       total,
-      notes: String(data?.notes || '').trim(),
+      notes: normMultiline(data?.notes),
       confidence: { high: [], medium: [], low: [] },
     };
   }
