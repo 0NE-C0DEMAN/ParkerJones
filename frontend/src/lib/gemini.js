@@ -125,7 +125,7 @@ appear on the page. Do NOT split anything off into customer_part /
 vendor_part — those two fields must always be returned as empty
 strings ("") in the schema.
 
-What goes inside `description`:
+What goes inside \`description\`:
   - Item # / Stock Code / Customer Part # / Buyer Part #
   - Mfr Part # / Vendor Part # / Mfr Model # / Catalog # / Manufacturer Part Number
   - Santee Cooper PN / customer-specified principal part #
@@ -148,7 +148,7 @@ Worked example (TEMA):
 
 The schema keeps customer_part and vendor_part for backwards compatibility
 with existing rows, but new extractions MUST leave them empty. The UI
-treats `description` as the only line-identity field.
+treats \`description\` as the only line-identity field.
 
 OTHER LINE FIELDS
 
@@ -246,6 +246,17 @@ OUTPUT SCHEMA
   "notes": "string (multi-line ok)"
 }`;
 
+  // Gemma models on the Gemini API don't accept `responseMimeType` (strict
+  // JSON mode) or `thinkingConfig`. Strip those before sending; the prompt
+  // already asks for raw JSON and Gemma reliably complies.
+  function _generationConfigFor(model, extra = {}) {
+    const cfg = { temperature: 0, maxOutputTokens: 8192, ...extra };
+    if (typeof model === 'string' && model.startsWith('gemma')) return cfg;
+    cfg.responseMimeType = 'application/json';
+    cfg.thinkingConfig = { thinkingBudget: 0 };
+    return cfg;
+  }
+
   function _stripFences(content) {
     return content
       .replace(/^```json\s*/i, '')
@@ -324,14 +335,7 @@ OUTPUT SCHEMA
       contents: [
         { role: 'user', parts: [{ text: 'Extract the purchase order data from the following document:\n\n' + trimmed }] },
       ],
-      generationConfig: {
-        temperature: 0,
-        maxOutputTokens: maxTokens,
-        responseMimeType: 'application/json',
-        // Gemini 2.5 thinking models consume tokens before output. PO
-        // extraction is mechanical — no reasoning needed — so disable.
-        thinkingConfig: { thinkingBudget: 0 },
-      },
+      generationConfig: _generationConfigFor(model, { maxOutputTokens: maxTokens }),
     };
 
     return _withFallback(keys, async (k) => {
@@ -398,12 +402,7 @@ OUTPUT SCHEMA
     const body = {
       systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
       contents: [{ role: 'user', parts }],
-      generationConfig: {
-        temperature: 0,
-        maxOutputTokens: maxTokens,
-        responseMimeType: 'application/json',
-        thinkingConfig: { thinkingBudget: 0 },
-      },
+      generationConfig: _generationConfigFor(hybridModel, { maxOutputTokens: maxTokens }),
     };
 
     return _withFallback(keys, async (k) => {
@@ -438,12 +437,7 @@ OUTPUT SCHEMA
     const body = {
       systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
       contents: [{ role: 'user', parts }],
-      generationConfig: {
-        temperature: 0,
-        maxOutputTokens: maxTokens,
-        responseMimeType: 'application/json',
-        thinkingConfig: { thinkingBudget: 0 },
-      },
+      generationConfig: _generationConfigFor(visionModel, { maxOutputTokens: maxTokens }),
     };
 
     return _withFallback(keys, async (k) => {
@@ -454,13 +448,13 @@ OUTPUT SCHEMA
 
   async function pingLLM({ apiKey, model } = {}) {
     if (!apiKey) throw new Error('No API key configured.');
+    const cfg = { temperature: 0, maxOutputTokens: 32 };
+    if (!String(model || '').startsWith('gemma')) {
+      cfg.thinkingConfig = { thinkingBudget: 0 };
+    }
     const body = {
       contents: [{ role: 'user', parts: [{ text: 'Reply with a single word: pong' }] }],
-      generationConfig: {
-        temperature: 0,
-        maxOutputTokens: 32,
-        thinkingConfig: { thinkingBudget: 0 },
-      },
+      generationConfig: cfg,
     };
     // Allow MAX_TOKENS — for a connectivity check, ANY response means the
     // key + model work. We don't care if the model felt chatty.

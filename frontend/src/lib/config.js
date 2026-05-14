@@ -43,6 +43,11 @@
     { id: 'gemini-2.5-flash',              label: 'Gemini 2.5 Flash',      tag: 'Recommended · best accuracy',  provider: 'google' },
     { id: 'gemini-2.5-flash-lite',         label: 'Gemini 2.5 Flash Lite', tag: 'Cheapest · less accurate',     provider: 'google' },
     { id: 'gemini-2.5-pro',                label: 'Gemini 2.5 Pro',        tag: 'Highest quality (paid)',       provider: 'google' },
+    // Gemma 4 — open-weights Google model. Slower (~2.5× vs Flash) but
+    // ~3× free-tier rate limit headroom (30 RPM / 14k RPD) and a
+    // useful fallback when pdfplumber's overlay-text corruption trips
+    // Gemini up (verified on the Apex/Ariba sample).
+    { id: 'gemma-4-26b-a4b-it',            label: 'Gemma 4 26B',           tag: 'Open weights · higher rate limits', provider: 'google' },
     { id: 'anthropic/claude-haiku-4.5',    label: 'Claude Haiku 4.5',      tag: 'Cheap (OpenRouter)',           provider: 'openrouter' },
     { id: 'anthropic/claude-sonnet-4.5',   label: 'Claude Sonnet 4.5',     tag: 'Mid-tier (OpenRouter)',        provider: 'openrouter' },
     { id: 'anthropic/claude-opus-4.6',     label: 'Claude Opus 4.6',       tag: 'Expensive (OpenRouter)',       provider: 'openrouter' },

@@ -108,7 +108,7 @@ product description into THIS ONE field, in document order. Do NOT
 split anything into customer_part / vendor_part — both must always be
 returned as empty strings ("").
 
-What goes inside `description`:
+What goes inside \`description\`:
   - Item # / Stock Code / Customer Part # / Buyer Part #
   - Mfr Part # / Vendor Part # / Mfr Model # / Catalog # / Manufacturer Part Number
   - Santee Cooper PN / customer-specified principal part #

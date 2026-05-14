@@ -27,3 +27,7 @@ Thumbs.db
 # Local sample uploads / binaries (not app source)
 /*.pdf
 /*.zip
+samples/
+
+# Tooling outputs
+tools/_*.txt
