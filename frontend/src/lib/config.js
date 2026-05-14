@@ -24,15 +24,18 @@
   const DEFAULT_API_KEYS = [];
   const DEFAULT_API_KEY = '';
 
-  // Default model — Gemini 2.5 Flash. On a bake-off across all 5 reference
-  // POs, Flash beat Flash-Lite 5-to-1 on invoice-critical fields (correctly
-  // identified ALLIED COMPONENTS as Meridian's supplier where Lite confused
-  // the customer for the supplier; got the Ariba Mfr Part # / Item # split
-  // right on Duke; stripped the "R" reference code from TEMA ship_to).
-  // Cost at ~1000 POs/day is roughly $30/month vs. $15/month — small price
-  // for eliminating wrong-vendor invoice routing. Lite remains selectable
-  // in Settings for cost-sensitive use.
-  const DEFAULT_MODEL = 'gemini-2.5-flash';
+  // Default model — Gemma 4 26B. Picked over Gemini 2.5 Flash after the
+  // hardened-prompt bake-off across all 5 reference POs:
+  //   * Numerics 5/5 perfect on both
+  //   * Gemma read past pdfplumber overlay corruption that tripped Flash
+  //     up on Apex/Ariba (Flash returned garbled customer names there)
+  //   * Free-tier rate limits ~3x Flash's (30 RPM / 14k RPD vs 10 / 250),
+  //     enough that high-volume days don't 429
+  //   * Trade-off: ~2.5x slower per call (~20s vs ~8s), but reps wait on
+  //     the upload review anyway, so latency isn't the bottleneck
+  // Flash remains selectable in Settings if a rep wants raw speed; Lite is
+  // still the cheapest paid-quota option.
+  const DEFAULT_MODEL = 'gemma-4-26b-a4b-it';
 
   const API_KEY_STORAGE = 'foundry.openrouter.apiKey';   // legacy name, holds whichever provider's key
   const MODEL_STORAGE = 'foundry.openrouter.model';
@@ -40,14 +43,13 @@
   // Models the user can choose from in Settings. Each one declares its
   // provider so the extractor knows which client to call.
   const AVAILABLE_MODELS = [
-    { id: 'gemini-2.5-flash',              label: 'Gemini 2.5 Flash',      tag: 'Recommended · best accuracy',  provider: 'google' },
+    // Gemma 4 — current default. Higher free-tier headroom + better at
+    // reading past pdfplumber overlay corruption than Flash. ~2.5x
+    // slower per call but accuracy is even or better on every sample.
+    { id: 'gemma-4-26b-a4b-it',            label: 'Gemma 4 26B',           tag: 'Recommended · highest free-tier rate limits', provider: 'google' },
+    { id: 'gemini-2.5-flash',              label: 'Gemini 2.5 Flash',      tag: 'Faster · tighter free-tier limits',  provider: 'google' },
     { id: 'gemini-2.5-flash-lite',         label: 'Gemini 2.5 Flash Lite', tag: 'Cheapest · less accurate',     provider: 'google' },
     { id: 'gemini-2.5-pro',                label: 'Gemini 2.5 Pro',        tag: 'Highest quality (paid)',       provider: 'google' },
-    // Gemma 4 — open-weights Google model. Slower (~2.5× vs Flash) but
-    // ~3× free-tier rate limit headroom (30 RPM / 14k RPD) and a
-    // useful fallback when pdfplumber's overlay-text corruption trips
-    // Gemini up (verified on the Apex/Ariba sample).
-    { id: 'gemma-4-26b-a4b-it',            label: 'Gemma 4 26B',           tag: 'Open weights · higher rate limits', provider: 'google' },
     { id: 'anthropic/claude-haiku-4.5',    label: 'Claude Haiku 4.5',      tag: 'Cheap (OpenRouter)',           provider: 'openrouter' },
     { id: 'anthropic/claude-sonnet-4.5',   label: 'Claude Sonnet 4.5',     tag: 'Mid-tier (OpenRouter)',        provider: 'openrouter' },
     { id: 'anthropic/claude-opus-4.6',     label: 'Claude Opus 4.6',       tag: 'Expensive (OpenRouter)',       provider: 'openrouter' },
