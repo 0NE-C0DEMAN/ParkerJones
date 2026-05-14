@@ -852,6 +852,32 @@ table { border-collapse: collapse; width: 100%; }
   box-shadow: var(--shadow-focus);
   outline: none;
 }
+/* Description is a multi-line textarea so long PO lines (part numbers +
+   product description + notes folded in) stay fully readable. Auto-grows
+   with content via `field-sizing: content` (Chrome/Edge) and a generous
+   min-height fallback elsewhere. */
+.line-items-table .li-desc-textarea {
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 5px;
+  padding: 6px 8px;
+  font-size: 12.5px;
+  font-family: inherit;
+  color: var(--text);
+  resize: vertical;
+  min-height: 30px;
+  line-height: 1.4;
+  field-sizing: content;
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+.line-items-table .li-desc-textarea:hover { background: var(--bg-subtle); }
+.line-items-table .li-desc-textarea:focus {
+  background: var(--bg-elevated);
+  border-color: var(--accent);
+  box-shadow: var(--shadow-focus);
+  outline: none;
+}
 .line-items-table .col-num input { font-family: 'JetBrains Mono', monospace; text-align: right; font-variant-numeric: tabular-nums; }
 /* Kill browser spin buttons on number inputs — they take ~17px on the
    right of the input, and combined with text-align:right that pushes
@@ -2423,8 +2449,6 @@ table { border-collapse: collapse; width: 100%; }
   font-size: 11px;
 }
 .dv-li-table col.dv-li-num    { width: 32px; }
-.dv-li-table col.dv-li-cpart  { width: 90px; }
-.dv-li-table col.dv-li-vpart  { width: 110px; }
 .dv-li-table col.dv-li-desc   { width: auto; }
 .dv-li-table col.dv-li-qty    { width: 52px; }
 .dv-li-table col.dv-li-uom    { width: 44px; }

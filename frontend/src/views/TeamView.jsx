@@ -20,6 +20,10 @@
     const [showAddForm, setShowAddForm] = useState(false);
     // After create/reset, hold the one-time password to display until dismissed
     const [tempCred, setTempCred] = useState(null);  // { email, password, action }
+    // 2-step delete confirmation — first click arms (this state), second
+    // click in the SAME row actually fires. Auto-disarms after 6s or on
+    // navigation away. Cheap, no modal.
+    const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
     const refresh = async () => {
       setLoading(true);
@@ -57,6 +61,32 @@
         pushToast?.({ type: 'success', message: `Password reset for ${u.email}.` });
       } catch (err) {
         pushToast?.({ type: 'error', message: err.message || 'Reset failed.' });
+      } finally {
+        setBusyId(null);
+      }
+    };
+
+    // 2-step delete: first click arms confirmation (button morphs), second
+    // click within 6s fires it. Auto-disarms otherwise.
+    useEffect(() => {
+      if (!confirmDeleteId) return;
+      const t = setTimeout(() => setConfirmDeleteId(null), 6000);
+      return () => clearTimeout(t);
+    }, [confirmDeleteId]);
+
+    const deleteUser = async (u) => {
+      if (confirmDeleteId !== u.id) {
+        setConfirmDeleteId(u.id);
+        return;
+      }
+      setConfirmDeleteId(null);
+      setBusyId(u.id);
+      try {
+        await window.App.backend.adminDeleteUser(u.id);
+        pushToast?.({ type: 'success', message: `${u.email} removed from team.` });
+        await refresh();
+      } catch (err) {
+        pushToast?.({ type: 'error', message: err.message || 'Delete failed.' });
       } finally {
         setBusyId(null);
       }
@@ -182,6 +212,19 @@
                                     Reactivate
                                   </Button>
                                 )
+                              )}
+                              {!isMe && (
+                                <Button
+                                  variant="danger"
+                                  size="sm"
+                                  loading={busyId === u.id}
+                                  onClick={() => deleteUser(u)}
+                                  title={confirmDeleteId === u.id
+                                    ? `Click again to permanently delete ${u.email}`
+                                    : 'Permanently delete this account'}
+                                >
+                                  {confirmDeleteId === u.id ? 'Click again to confirm' : 'Delete'}
+                                </Button>
                               )}
                             </div>
                           </td>

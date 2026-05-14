@@ -117,17 +117,21 @@ NAME RULES (never concatenate, never hallucinate)
 
 LINE ITEMS
 
-DESCRIPTION IS THE CANONICAL FIELD FOR PARTS
-The "description" field is the AUTHORITATIVE single source of truth for every line. **ALWAYS** lead the description with EVERY part identifier the document shows for that line, even if you ALSO fill customer_part / vendor_part below. The description must be self-contained: a rep reading the description alone should see every part code that appears on that line of the original PO.
+DESCRIPTION IS THE ONLY FIELD FOR PARTS + PRODUCT TEXT
+The "description" field is the SINGLE source of truth for every line.
+**ALWAYS** put every part identifier, model number, catalog code, AND
+the actual product description into THIS ONE field, in the order they
+appear on the page. Do NOT split anything off into customer_part /
+vendor_part — those two fields must always be returned as empty
+strings ("") in the schema.
 
-Identifiers to include at the start of description (space-separated, in roughly the order they appear in the document):
+What goes inside `description`:
   - Item # / Stock Code / Customer Part # / Buyer Part #
   - Mfr Part # / Vendor Part # / Mfr Model # / Catalog # / Manufacturer Part Number
   - Santee Cooper PN / customer-specified principal part #
   - "PLEASE FURNISH #" continuation codes
   - any extra Cat #, model #, drawing #, U-number
-
-Then " — " (space hyphen space) and the actual product description text.
+  - then " — " (space hyphen space) and the human-readable product description
 
 Worked example (TEMA):
   Raw line in the doc:
@@ -138,12 +142,13 @@ Worked example (TEMA):
                 CRTK2-C016-D-U-T5R-U0-TH-4N7-10MSP-V-A-10
                 X-U126120.
   Output:
-    description = "39004430 CRTKAA08E120510KTHVAU0037 CRTK2-C016-D-U-T5R-U0-TH-4N7-10MSP-V-A-10 X-U126120 — SEC LGT HEAD ONLY 29W LED"
+    description    = "39004430 CRTKAA08E120510KTHVAU0037 CRTK2-C016-D-U-T5R-U0-TH-4N7-10MSP-V-A-10 X-U126120 — SEC LGT HEAD ONLY 29W LED"
+    customer_part  = ""
+    vendor_part    = ""
 
-OPTIONAL STRUCTURED PART FIELDS (only when labels are UNAMBIGUOUS)
-- "customer_part" — only fill when a label clearly says "Customer Part #", "Stock Code", "Buyer Part #", or on Ariba layouts where the row starts "Line <NUMBER>" (then NUMBER → customer_part, e.g. "Line 1624939 ..." → "1624939").
-- "vendor_part" — only fill when a label clearly says "Mfr Part #", "Vendor Part #", "Mfr Model #", "Catalog #", or "Manufacturer Part Number". The LABEL decides — even if the value looks like "DUKE-GB-DMA-70-70-FX-12-BK", a label of "Mfr Part #" means vendor_part.
-- If the column header is just "ITEM" (no qualifier), or you cannot tell which side of the relationship a code belongs to, leave BOTH customer_part and vendor_part as "" — the description already has every identifier the rep needs.
+The schema keeps customer_part and vendor_part for backwards compatibility
+with existing rows, but new extractions MUST leave them empty. The UI
+treats `description` as the only line-identity field.
 
 OTHER LINE FIELDS
 

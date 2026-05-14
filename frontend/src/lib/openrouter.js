@@ -101,25 +101,28 @@ NAME RULES (never concatenate, never hallucinate)
 
 LINE ITEMS
 
-DESCRIPTION IS THE CANONICAL FIELD FOR PARTS
-The "description" field is the AUTHORITATIVE single source of truth for every line. **ALWAYS** lead the description with EVERY part identifier the document shows for that line, even if you ALSO fill customer_part / vendor_part below. The description must be self-contained: a rep reading description alone should see every code that appears on that line of the original PO.
+DESCRIPTION IS THE ONLY FIELD FOR PARTS + PRODUCT TEXT
+The "description" field is the SINGLE source of truth for every line.
+Put EVERY part identifier, model number, catalog code, AND the actual
+product description into THIS ONE field, in document order. Do NOT
+split anything into customer_part / vendor_part — both must always be
+returned as empty strings ("").
 
-Identifiers to include (space-separated, document order):
+What goes inside `description`:
   - Item # / Stock Code / Customer Part # / Buyer Part #
   - Mfr Part # / Vendor Part # / Mfr Model # / Catalog # / Manufacturer Part Number
   - Santee Cooper PN / customer-specified principal part #
   - "PLEASE FURNISH #" continuation codes
   - any extra Cat #, model #, drawing #, U-number
-
-Then " — " (space hyphen space) and the actual product description text.
+  - then " — " (space hyphen space) and the human-readable product description
 
 Worked example (TEMA):
-  description = "39004430 CRTKAA08E120510KTHVAU0037 CRTK2-C016-D-U-T5R-U0-TH-4N7-10MSP-V-A-10 X-U126120 — SEC LGT HEAD ONLY 29W LED"
+  description    = "39004430 CRTKAA08E120510KTHVAU0037 CRTK2-C016-D-U-T5R-U0-TH-4N7-10MSP-V-A-10 X-U126120 — SEC LGT HEAD ONLY 29W LED"
+  customer_part  = ""
+  vendor_part    = ""
 
-OPTIONAL STRUCTURED PART FIELDS (fill ONLY when labels are UNAMBIGUOUS)
-- "customer_part" — only when "Customer Part #", "Stock Code", "Buyer Part #" is the explicit label, or on Ariba "Line <NUMBER>" rows (NUMBER → customer_part).
-- "vendor_part" — only when "Mfr Part #", "Vendor Part #", "Mfr Model #", "Catalog #" is the explicit label. The label decides regardless of what the code value looks like.
-- If the column header is just "ITEM" or ambiguous, leave BOTH fields "" — the description already has every identifier.
+The schema keeps customer_part / vendor_part for back-compat with
+existing rows, but new extractions MUST leave them empty.
 
 OTHER LINE FIELDS
 

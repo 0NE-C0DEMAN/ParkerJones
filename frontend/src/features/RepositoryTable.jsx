@@ -210,8 +210,6 @@
                     <thead>
                       <tr>
                         <th style={{ width: 30 }}>#</th>
-                        <th>Customer Part</th>
-                        <th>Vendor Part</th>
                         <th>Description</th>
                         <th style={{ width: 50 }} className="col-num">Qty</th>
                         <th style={{ width: 50 }}>UOM</th>
@@ -222,13 +220,21 @@
                       </tr>
                     </thead>
                     <tbody>
-                      {(record.line_items || []).map((it, idx) => (
+                      {(record.line_items || []).map((it, idx) => {
+                        // Fold customer_part / vendor_part back into the
+                        // description (single self-contained block per line).
+                        const desc = String(it.description || '').trim();
+                        const cp = String(it.customer_part || '').trim();
+                        const vp = String(it.vendor_part || '').trim();
+                        const parts = [];
+                        if (cp && !desc.includes(cp)) parts.push(cp);
+                        if (vp && vp !== cp && !desc.includes(vp)) parts.push(vp);
+                        if (desc) parts.push(desc);
+                        const fullDesc = parts.join(' ').trim() || '—';
+                        return (
                         <tr key={it.line || idx}>
                           <td className="col-num">{Number(it.line) || (idx + 1)}</td>
-                          <td style={{ fontFamily: 'JetBrains Mono', fontSize: 11.5 }}>{it.customer_part || '—'}</td>
-                          <td style={{ fontFamily: 'JetBrains Mono', fontSize: 11.5 }}>{it.vendor_part || '—'}</td>
-                          <td title={it.description}>{truncate(it.description || '—', 60)}</td>
-                          {/* Coerce so null/undefined/missing renders 0 instead of going blank. */}
+                          <td title={fullDesc}>{truncate(fullDesc, 80)}</td>
                           <td className="col-num">{Number.isFinite(Number(it.quantity)) ? Number(it.quantity).toLocaleString() : 0}</td>
                           <td>{it.uom || 'EA'}</td>
                           <td className="col-num">{formatCurrency(it.unit_price, record.currency)}</td>
@@ -236,7 +242,8 @@
                           <td>{formatDate(it.required_date)}</td>
                           <td className="text-sm text-muted" title={it.notes}>{truncate(it.notes || '', 40) || '—'}</td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
 

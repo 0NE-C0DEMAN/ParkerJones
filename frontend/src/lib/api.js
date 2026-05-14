@@ -219,6 +219,24 @@
     });
   }
 
+  /** Admin: permanently remove a user from the team (soft-delete on the
+   *  server — POs they created keep their audit trail, but the account
+   *  is gone from /api/team and can no longer log in). */
+  async function adminDeleteUser(user_id) {
+    return request(`/api/team/users/${encodeURIComponent(user_id)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /** Change the signed-in user's email. Requires the current password as
+   *  confirmation. Returns the updated user. */
+  async function changeMyEmail({ new_email, current_password }) {
+    return request('/api/auth/email', {
+      method: 'POST',
+      body: JSON.stringify({ new_email, current_password }),
+    });
+  }
+
   /** Admin: snapshot of app-wide config (LLM key status + system stats). */
   /** Server-side PDF parse via pdfplumber. Returns { page_count,
    *  page_count_full, pages[], text, truncated } where text is layout-
@@ -295,6 +313,8 @@
     setUserActive,
     adminCreateUser,
     adminResetPassword,
+    adminDeleteUser,
+    changeMyEmail,
     getAdminConfig,
     setAdminConfig,
     clearAdminLlmKey,

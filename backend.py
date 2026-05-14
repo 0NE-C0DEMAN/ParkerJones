@@ -120,6 +120,11 @@ class ProfileUpdate(BaseModel):
     full_name: Optional[str] = Field(default=None, min_length=1, max_length=120)
 
 
+class EmailChange(BaseModel):
+    new_email: EmailStr
+    current_password: str  # require password as a confirmation step
+
+
 class PasswordChange(BaseModel):
     current_password: str
     new_password: str = Field(min_length=8, max_length=200)
@@ -232,6 +237,24 @@ def change_password(payload: PasswordChange, user: auth.CurrentUser = Depends(au
     if not ok:
         raise HTTPException(400, "Current password is incorrect.")
     return {"updated": True}
+
+
+@app.post("/api/auth/email", response_model=auth.CurrentUser)
+def change_email(payload: EmailChange, user: auth.CurrentUser = Depends(auth.current_user)):
+    """User-initiated email change. Requires the current password (so a
+    stolen session token alone can't re-bind the account to an attacker's
+    email)."""
+    full_row = db.get_user(user.id)
+    if not full_row or not auth.verify_password(payload.current_password, full_row.get("password_hash") or ""):
+        raise HTTPException(400, "Current password is incorrect.")
+    try:
+        updated = db.update_user_email(user.id, payload.new_email)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    if not updated:
+        raise HTTPException(404, "User not found.")
+    # Strip password_hash before returning to the client.
+    return auth.CurrentUser(**{k: v for k, v in updated.items() if k != "password_hash"})
 
 
 @app.post("/api/auth/logout")
@@ -485,6 +508,26 @@ def admin_reset_password(
     new_password = auth.generate_temp_password()
     auth.admin_set_password(user_id, new_password)
     return {"user_id": user_id, "temporary_password": new_password}
+
+
+@app.delete("/api/team/users/{user_id}")
+def admin_delete_user(
+    user_id: str,
+    user: auth.CurrentUser = Depends(auth.require_admin),
+):
+    """Admin removes a user account permanently from the team list. Stored
+    as a soft-delete (the row stays so any POs that user created keep
+    their audit trail) — but the account no longer appears in /api/team,
+    can't log in, and its email is freed for re-use."""
+    if user_id == user.id:
+        raise HTTPException(400, "You can't delete your own account.")
+    target = db.get_user(user_id)
+    if not target:
+        raise HTTPException(404, "User not found.")
+    ok = db.delete_user(user_id)
+    if not ok:
+        raise HTTPException(404, "User not found or already deleted.")
+    return {"ok": True, "user_id": user_id}
 
 
 @app.delete("/api/pos")

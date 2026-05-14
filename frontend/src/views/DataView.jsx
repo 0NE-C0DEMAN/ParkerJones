@@ -487,8 +487,6 @@
           <table className="dv-li-table">
             <colgroup>
               <col className="dv-li-num" />
-              <col className="dv-li-cpart" />
-              <col className="dv-li-vpart" />
               <col className="dv-li-desc" />
               <col className="dv-li-qty" />
               <col className="dv-li-uom" />
@@ -500,8 +498,6 @@
             <thead>
               <tr>
                 <th className="dv-col-num">#</th>
-                <th>Cust. Part</th>
-                <th>Vendor Part</th>
                 <th>Description</th>
                 <th className="dv-col-num">Qty</th>
                 <th>UOM</th>
@@ -514,14 +510,14 @@
             <tbody>
               {items.map((it, idx) => (
                 <tr key={it.line || idx}>
-                  {/* Every cell renders something visible — '—' for empty
-                      strings, a numeric fallback for numbers, formatted
-                      currency that already returns '—' for missing values.
-                      A reps's eye should never see a blank cell. */}
+                  {/* Description is the SINGLE source of truth for every
+                      part identifier on the line. If the LLM split any
+                      part numbers into customer_part / vendor_part, fold
+                      them back into the description here so the rep sees
+                      one self-contained block (matches the on-page text
+                      of the original PO). */}
                   <td className="dv-col-num">{Number(it.line) || (idx + 1)}</td>
-                  <td className="dv-mono">{it.customer_part || '—'}</td>
-                  <td className="dv-mono">{it.vendor_part || '—'}</td>
-                  <td className="dv-li-desc-cell">{it.description || '—'}</td>
+                  <td className="dv-li-desc-cell">{combinedDescription(it)}</td>
                   <td className="dv-col-num">{Number.isFinite(Number(it.quantity)) ? Number(it.quantity).toLocaleString() : 0}</td>
                   <td>{it.uom || 'EA'}</td>
                   <td className="dv-col-num">{formatCurrency(it.unit_price, currency)}</td>
@@ -547,6 +543,22 @@
     const v = r[key];
     if (typeof v === 'number') return v;
     return String(v == null ? '' : v).toLowerCase();
+  }
+
+  // Fold any LLM-split part numbers (customer_part / vendor_part) back
+  // into the description for display, so reps see ONE self-contained
+  // text block per line — never split across three columns. Skip parts
+  // that already appear inside the description text (avoid duplication).
+  function combinedDescription(it) {
+    const desc = String(it?.description || '').trim();
+    const cp = String(it?.customer_part || '').trim();
+    const vp = String(it?.vendor_part || '').trim();
+    const parts = [];
+    if (cp && !desc.includes(cp)) parts.push(cp);
+    if (vp && vp !== cp && !desc.includes(vp)) parts.push(vp);
+    if (desc) parts.push(desc);
+    const out = parts.join(' ').trim();
+    return out || '—';
   }
 
   // Date helpers — always return SOMETHING visible. '—' is the universal

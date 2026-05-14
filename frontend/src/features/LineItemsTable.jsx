@@ -44,15 +44,12 @@
           <table className="line-items-table">
             <thead>
               <tr>
-                {/* `minWidth` not `width` — the table layout is `auto`, so
-                    only a min keeps a column from being squeezed below the
-                    point its value is readable (the previous bug: Qty
-                    column was crushed to 29px and the input's "0" / "450"
-                    was pushed off-screen by browser spin buttons). */}
+                {/* Description is the SINGLE field for every part identifier
+                    on the line — no Customer Part / Vendor Part split.
+                    Backing schema still has those fields for older data
+                    (folded into description here on first edit). */}
                 <th style={{ minWidth: 40 }}>#</th>
-                <th style={{ minWidth: 120 }}>Customer Part</th>
-                <th style={{ minWidth: 140 }}>Vendor Part</th>
-                <th style={{ minWidth: 240 }}>Description</th>
+                <th style={{ minWidth: 320 }}>Description</th>
                 <th style={{ minWidth: 80 }} className="col-num">Qty</th>
                 <th style={{ minWidth: 56 }}>UOM</th>
                 <th style={{ minWidth: 100 }} className="col-num">Unit Price</th>
@@ -66,9 +63,16 @@
               {items.map((row, idx) => (
                 <tr key={idx}>
                   <td className="col-num"><CellInput value={row.line} onChange={(v) => updateRow(idx, { line: v })} /></td>
-                  <td><CellInput value={row.customer_part} onChange={(v) => updateRow(idx, { customer_part: v })} placeholder="—" /></td>
-                  <td><CellInput value={row.vendor_part} onChange={(v) => updateRow(idx, { vendor_part: v })} placeholder="—" /></td>
-                  <td><CellInput value={row.description} onChange={(v) => updateRow(idx, { description: v })} placeholder="Description" /></td>
+                  {/* Textarea, not single-line input, so a long PO line
+                      stays readable (e.g. "39004430 CRTKAA08E120510KTHVAU0037
+                      / SEC LGT HEAD ONLY 29W LED / CRTK2-C016-..." etc.). */}
+                  <td>
+                    <CellTextarea
+                      value={fullDescription(row)}
+                      onChange={(v) => updateRow(idx, { description: v, customer_part: '', vendor_part: '' })}
+                      placeholder="Part numbers, product description, everything on the line"
+                    />
+                  </td>
                   <td className="col-num"><CellInput type="number" value={row.quantity} onChange={(v) => updateRow(idx, { quantity: Number(v) || 0 })} /></td>
                   <td><CellInput value={row.uom} onChange={(v) => updateRow(idx, { uom: v })} placeholder="EA" /></td>
                   <td className="col-num"><CellInput type="number" value={row.unit_price} onChange={(v) => updateRow(idx, { unit_price: Number(v) || 0 })} /></td>
@@ -108,6 +112,33 @@
           </div>
         </div>
       </div>
+    );
+  }
+
+  // Fold any LLM-split part numbers back into the description so the rep
+  // edits ONE field. The first edit re-saves with customer_part /
+  // vendor_part empty — the description becomes the single source of
+  // truth going forward.
+  function fullDescription(row) {
+    const desc = String(row?.description || '').trim();
+    const cp = String(row?.customer_part || '').trim();
+    const vp = String(row?.vendor_part || '').trim();
+    const parts = [];
+    if (cp && !desc.includes(cp)) parts.push(cp);
+    if (vp && vp !== cp && !desc.includes(vp)) parts.push(vp);
+    if (desc) parts.push(desc);
+    return parts.join(' ').trim();
+  }
+
+  function CellTextarea({ value, onChange, placeholder }) {
+    return (
+      <textarea
+        className="li-desc-textarea"
+        value={value ?? ''}
+        onChange={(e) => onChange?.(e.target.value)}
+        placeholder={placeholder}
+        rows={1}
+      />
     );
   }
 

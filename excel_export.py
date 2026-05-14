@@ -114,14 +114,17 @@ def build_workbook(records: Iterable[dict]) -> io.BytesIO:
     # ---------- Sheet 2: Line Items ----------
     ws2 = wb.create_sheet("Line Items")
 
+    # Description is the SINGLE field for parts + product text (matches UI).
+    # Customer Part / Vendor Part columns are gone from the export — older
+    # rows had them populated, but we fold those values into Description at
+    # write time so the export is consistent with what the rep sees in the
+    # app.
     columns_lines = [
         ("PO Number", 16),
         ("Customer", 24),
         ("Supplier", 24),
         ("Line", 6),
-        ("Customer Part", 16),
-        ("Vendor Part", 20),
-        ("Description", 44),
+        ("Description", 60),
         ("Quantity", 9),
         ("UOM", 6),
         ("Unit Price", 13),
@@ -131,6 +134,19 @@ def build_workbook(records: Iterable[dict]) -> io.BytesIO:
     ]
     _style_header_row(ws2, columns_lines)
 
+    def _full_desc(it: dict) -> str:
+        desc = (it.get("description") or "").strip()
+        cp = (it.get("customer_part") or "").strip()
+        vp = (it.get("vendor_part") or "").strip()
+        parts = []
+        if cp and cp not in desc:
+            parts.append(cp)
+        if vp and vp != cp and vp not in desc:
+            parts.append(vp)
+        if desc:
+            parts.append(desc)
+        return " ".join(parts).strip()
+
     r_idx = 2
     for rec in records:
         for it in rec.get("line_items") or []:
@@ -138,17 +154,15 @@ def build_workbook(records: Iterable[dict]) -> io.BytesIO:
             ws2.cell(row=r_idx, column=2, value=rec.get("customer", ""))
             ws2.cell(row=r_idx, column=3, value=rec.get("supplier", ""))
             ws2.cell(row=r_idx, column=4, value=int(it.get("line") or 0))
-            ws2.cell(row=r_idx, column=5, value=it.get("customer_part", ""))
-            ws2.cell(row=r_idx, column=6, value=it.get("vendor_part", ""))
-            ws2.cell(row=r_idx, column=7, value=it.get("description", ""))
-            ws2.cell(row=r_idx, column=8, value=float(it.get("quantity") or 0))
-            ws2.cell(row=r_idx, column=9, value=it.get("uom", ""))
-            unit_cell = ws2.cell(row=r_idx, column=10, value=float(it.get("unit_price") or 0))
+            ws2.cell(row=r_idx, column=5, value=_full_desc(it))
+            ws2.cell(row=r_idx, column=6, value=float(it.get("quantity") or 0))
+            ws2.cell(row=r_idx, column=7, value=it.get("uom", ""))
+            unit_cell = ws2.cell(row=r_idx, column=8, value=float(it.get("unit_price") or 0))
             unit_cell.number_format = '"$"#,##0.00'
-            amt_cell = ws2.cell(row=r_idx, column=11, value=float(it.get("amount") or 0))
+            amt_cell = ws2.cell(row=r_idx, column=9, value=float(it.get("amount") or 0))
             amt_cell.number_format = '"$"#,##0.00'
-            ws2.cell(row=r_idx, column=12, value=it.get("required_date", ""))
-            ws2.cell(row=r_idx, column=13, value=_flatten(it.get("notes")))
+            ws2.cell(row=r_idx, column=10, value=it.get("required_date", ""))
+            ws2.cell(row=r_idx, column=11, value=_flatten(it.get("notes")))
             r_idx += 1
 
     buf = io.BytesIO()

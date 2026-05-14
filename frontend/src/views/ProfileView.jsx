@@ -51,15 +51,45 @@
 
   function ProfileCard({ user, onUserUpdated, pushToast }) {
     const [name, setName] = useState(user?.full_name || '');
+    const [email, setEmail] = useState(user?.email || '');
+    // Password is only required when changing the email — gating change
+    // on a session token alone would let a stolen token re-bind the
+    // account to an attacker's address.
+    const [emailPassword, setEmailPassword] = useState('');
     const [busy, setBusy] = useState(false);
-    const dirty = name.trim() !== (user?.full_name || '').trim();
+
+    // Re-sync local state when the parent hands us a fresh user object
+    // (e.g. after a successful save elsewhere in the app).
+    useEffect(() => {
+      setName(user?.full_name || '');
+      setEmail(user?.email || '');
+    }, [user?.id, user?.full_name, user?.email]);
+
+    const trimmedEmail = email.trim().toLowerCase();
+    const nameDirty = name.trim() !== (user?.full_name || '').trim();
+    const emailDirty = trimmedEmail !== (user?.email || '').trim().toLowerCase();
+    const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail);
+    const canSave = !busy
+      && (nameDirty || (emailDirty && emailValid && emailPassword.length > 0));
 
     const save = async () => {
-      if (!dirty) return;
+      if (!canSave) return;
       setBusy(true);
       try {
-        const updated = await window.App.auth.updateProfile({ full_name: name.trim() });
-        onUserUpdated?.(updated);
+        let updated = null;
+        // Order matters: change email first (needs the OLD password to
+        // confirm). If it fails, bail before touching name.
+        if (emailDirty && emailValid) {
+          updated = await window.App.backend.changeMyEmail({
+            new_email: trimmedEmail,
+            current_password: emailPassword,
+          });
+        }
+        if (nameDirty) {
+          updated = await window.App.auth.updateProfile({ full_name: name.trim() });
+        }
+        if (updated) onUserUpdated?.(updated);
+        setEmailPassword('');
         pushToast?.({ type: 'success', message: 'Profile updated.' });
       } catch (err) {
         pushToast?.({ type: 'error', message: err.message || 'Update failed.' });
@@ -72,19 +102,40 @@
       <Card noPadding>
         <CardHeader
           title="Edit profile"
-          subtitle="Your display name in the ledger and to teammates."
+          subtitle="Your display name and sign-in email."
           icon={<Icon name="user" size={12} />}
         />
         <div className="settings-section">
           <Field label="Full name">
             <Input value={name} onChange={setName} placeholder="Your name" />
           </Field>
-          <Field label="Email">
-            <Input value={user?.email || ''} disabled style={{ fontFamily: 'JetBrains Mono', fontSize: 12 }} />
+          <Field
+            label="Email"
+            error={emailDirty && !emailValid ? 'Enter a valid email address' : null}
+          >
+            <Input
+              type="email"
+              value={email}
+              onChange={setEmail}
+              placeholder="you@company.com"
+              autoComplete="email"
+              style={{ fontFamily: 'JetBrains Mono', fontSize: 12 }}
+            />
             <span className="text-sm text-subtle" style={{ fontSize: 11, marginTop: 4 }}>
-              Used as your sign-in identifier — change requires re-invitation.
+              Sign-in identifier. Changing it requires your current password.
             </span>
           </Field>
+          {emailDirty && (
+            <Field label="Current password (required to change email)">
+              <Input
+                type="password"
+                value={emailPassword}
+                onChange={setEmailPassword}
+                placeholder="••••••••"
+                autoComplete="current-password"
+              />
+            </Field>
+          )}
           <Field label="Role">
             <div className="flex items-center gap-2" style={{ height: 34 }}>
               <Badge tone={user?.role === 'admin' ? 'accent' : 'default'} dot>
@@ -100,7 +151,7 @@
               variant="primary"
               size="sm"
               loading={busy}
-              disabled={!dirty || busy}
+              disabled={!canSave}
               onClick={save}
               iconLeft="check"
             >

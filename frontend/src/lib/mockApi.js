@@ -278,11 +278,26 @@
         unit_price = +(amount / quantity).toFixed(4);
       }
 
+      // Description is the SINGLE field for all part identifiers + product
+      // text. If the LLM (or older data) leaked anything into customer_part
+      // or vendor_part, fold those values back into description and clear
+      // the split fields. The UI never shows them as separate columns;
+      // one source of truth from extraction onward.
+      let description = String(it.description || '').trim();
+      const cp = String(it.customer_part || '').trim();
+      const vp = String(it.vendor_part || '').trim();
+      const prepend = [];
+      if (cp && !description.includes(cp)) prepend.push(cp);
+      if (vp && vp !== cp && !description.includes(vp)) prepend.push(vp);
+      if (prepend.length) {
+        description = (prepend.join(' ') + (description ? ' ' + description : '')).trim();
+      }
+
       return {
         line: Number(it.line) || i + 1,
-        customer_part: String(it.customer_part || '').trim(),
-        vendor_part: String(it.vendor_part || '').trim(),
-        description: String(it.description || '').trim(),
+        customer_part: '',
+        vendor_part: '',
+        description,
         quantity,
         uom: normUom(it.uom),
         unit_price,

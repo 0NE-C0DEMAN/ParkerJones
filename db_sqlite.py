@@ -220,8 +220,13 @@ def get_user(user_id: str) -> dict | None:
 
 
 def find_user_by_email(email: str) -> dict | None:
+    # Excludes soft-deleted accounts so a "parked" email (deleted-*) can't
+    # be used to log in, and the slot is genuinely free for re-creation.
     with get_conn() as conn:
-        row = conn.execute("SELECT * FROM users WHERE email = ?", (email.strip().lower(),)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM users WHERE email = ? AND deleted_at IS NULL",
+            (email.strip().lower(),),
+        ).fetchone()
         return dict(row) if row else None
 
 
@@ -245,9 +250,12 @@ def touch_last_login(user_id: str) -> None:
 
 
 def list_users() -> list[dict]:
+    # Soft-deleted users are hidden from every UI listing — only the row
+    # itself (and its POs' created_by_email audit string) remain in the DB.
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT id, email, full_name, role, is_active, created_at, last_login_at FROM users ORDER BY created_at"
+            "SELECT id, email, full_name, role, is_active, created_at, last_login_at "
+            "FROM users WHERE deleted_at IS NULL ORDER BY created_at"
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -255,6 +263,47 @@ def list_users() -> list[dict]:
 def set_user_active(user_id: str, active: bool) -> None:
     with get_conn() as conn:
         conn.execute("UPDATE users SET is_active = ? WHERE id = ?", (1 if active else 0, user_id))
+
+
+def delete_user(user_id: str) -> bool:
+    """Soft-delete: keep the row (and its audit references on POs) but
+    mark it deleted, deactivate it, and rename the email so a fresh
+    account can be created with the same address. Returns True if a row
+    was actually deleted (False if no such user or already deleted)."""
+    now = datetime.now().isoformat()
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT email, deleted_at FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        if not row or row["deleted_at"]:
+            return False
+        # Park the original email under a deleted-* prefix so the slot frees
+        # up. POs' created_by_email string keeps the original — audit
+        # trail intact.
+        parked_email = f"deleted-{user_id[:8]}-{row['email']}"
+        conn.execute(
+            "UPDATE users SET deleted_at = ?, is_active = 0, email = ? WHERE id = ?",
+            (now, parked_email, user_id),
+        )
+        return True
+
+
+def update_user_email(user_id: str, new_email: str) -> dict | None:
+    """Change a user's email. Raises ValueError if the address is already
+    taken by another (non-deleted) account."""
+    norm = (new_email or "").strip().lower()
+    if not norm:
+        raise ValueError("Email cannot be empty.")
+    with get_conn() as conn:
+        clash = conn.execute(
+            "SELECT id FROM users WHERE email = ? AND id != ? AND deleted_at IS NULL",
+            (norm, user_id),
+        ).fetchone()
+        if clash:
+            raise ValueError(f"Another account already uses {norm}.")
+        conn.execute("UPDATE users SET email = ? WHERE id = ?", (norm, user_id))
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        return dict(row) if row else None
 
 
 # =============================================================================
