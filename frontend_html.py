@@ -45,6 +45,7 @@ FILES_JSX = [
     "src/components/ErrorBoundary.jsx",
     "src/layout/Sidebar.jsx",
     "src/layout/TopBar.jsx",
+    "src/layout/BottomNav.jsx",
     # Helpers/atoms first, then composites that depend on them.
     "src/features/StatusPill.jsx",
     "src/features/Autocomplete.jsx",

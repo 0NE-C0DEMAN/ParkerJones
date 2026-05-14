@@ -14,7 +14,7 @@
   function App() {
     // Resolve at render time so any component can be defined later in script order
     const {
-      Sidebar, TopBar, ToastContainer, Button, Icon,
+      Sidebar, TopBar, BottomNav, ToastContainer, Button, Icon,
       AuthView, UploadView, ReviewView, RepositoryView, DataView, SettingsView, ProfileView, TeamView,
       CommandPalette, ErrorBoundary,
     } = window.App;
@@ -554,6 +554,17 @@
             )}
           </div>
         </main>
+
+        {/* Mobile-only bottom tab bar (≤640px). Desktop sidebar handles
+            navigation on wider viewports; CSS toggles which one renders. */}
+        <BottomNav
+          activeView={view}
+          onNavigate={handleNavigateMobile}
+          user={user}
+          onSignOut={handleSignOut}
+          repositoryCount={repository.length}
+          pendingCount={pending ? 1 : 0}
+        />
         <ToastContainer toasts={toasts} onDismiss={dismiss} />
         <CommandPalette
           open={paletteOpen}

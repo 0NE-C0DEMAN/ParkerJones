@@ -2555,61 +2555,195 @@ table { border-collapse: collapse; width: 100%; }
      * Form grids collapse to 1 column; settings rows stack
      * Bottom-fixed action bar stays comfortable above the home indicator
    ============================================================================= */
-@media (max-width: 640px) {
-  /* ----- Off-canvas sidebar ----- */
-  .sidebar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    width: 250px;
-    z-index: 100;
-    transform: translateX(-100%);
-    box-shadow: none;
-    transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1),
-                box-shadow 220ms ease-out;
-  }
-  .app.mobile-sidebar-open .sidebar {
-    transform: translateX(0);
-    box-shadow: 0 18px 48px rgba(15, 23, 42, 0.28);
-  }
-  .sidebar.collapsed { width: 250px; }
-  .sidebar .brand-collapse-glyph { display: none; }
-  .app.mobile-sidebar-open .sidebar-backdrop {
-    opacity: 1;
-    pointer-events: auto;
-  }
+/* =============================================================================
+   Bottom nav bar — visible only on mobile. The desktop sidebar is hidden
+   below the 640px breakpoint, so navigation lives entirely in this thumb-
+   reachable bar fixed to the bottom of the viewport.
+   ============================================================================= */
+.bottom-nav {
+  display: none;   /* show only inside the mobile @media block */
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 80;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -2px 12px rgba(15, 23, 42, 0.05);
+  padding: 4px 4px max(4px, env(safe-area-inset-bottom));
+}
+.bottom-nav-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 7px 4px 5px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  min-height: 50px;
+  border-radius: 6px;
+  transition: color 120ms, background 120ms;
+}
+.bottom-nav-tab:hover { background: var(--bg-subtle); }
+.bottom-nav-tab.is-active { color: var(--accent); }
+.bottom-nav-tab.is-active .bottom-nav-icon { color: var(--accent); }
+.bottom-nav-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+}
+.bottom-nav-label { font-size: 10px; line-height: 1; }
+.bottom-nav-badge {
+  position: absolute;
+  top: -4px;
+  right: -8px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: white;
+  font-size: 9px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
 
+/* Bottom sheet (More tab) */
+.bottom-sheet-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.42);
+  z-index: 90;
+}
+.bottom-sheet {
+  display: none;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(60px + env(safe-area-inset-bottom, 0px));
+  z-index: 91;
+  background: var(--bg-elevated);
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+  box-shadow: 0 -10px 32px rgba(15, 23, 42, 0.22);
+  padding: 8px 0 16px;
+  animation: bottomSheetIn 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes bottomSheetIn {
+  from { transform: translateY(20px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+.bottom-sheet-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  margin: 4px auto 12px;
+}
+.bottom-sheet-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 16px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.bottom-sheet-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #f59e0b 0%, #ea580c 60%, #dc2626 100%);
+  color: white;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.bottom-sheet-identity { min-width: 0; flex: 1; }
+.bottom-sheet-name { font-size: 13px; font-weight: 600; color: var(--text); }
+.bottom-sheet-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bottom-sheet-list { display: flex; flex-direction: column; gap: 2px; padding: 8px 8px 0; }
+.bottom-sheet-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 8px;
+  text-align: left;
+  width: 100%;
+}
+.bottom-sheet-item:hover { background: var(--bg-subtle); }
+.bottom-sheet-item.is-active { background: var(--accent-soft); color: var(--accent); }
+.bottom-sheet-item.is-active svg { color: var(--accent); }
+.bottom-sheet-item-danger { color: var(--danger); }
+.bottom-sheet-item-danger svg { color: var(--danger); }
+.bottom-sheet-divider { height: 1px; background: var(--border-subtle); margin: 6px 12px; }
+
+@media (max-width: 640px) {
+  /* ----- Hide the desktop sidebar entirely; navigation moves to the
+       bottom tab bar (.bottom-nav, defined above this block). ----- */
+  .sidebar          { display: none !important; }
+  .sidebar-backdrop { display: none !important; }
+  .bottom-nav            { display: flex; align-items: stretch; }
+  .bottom-sheet-backdrop { display: block; }
+  .bottom-sheet         { display: block; }
+
+  /* Main takes the full width; leave room at the bottom for the bar. */
   .main { width: 100%; max-width: 100%; }
 
-  /* ----- Topbar — slim, single-row when it can fit ----- */
+  /* ----- Topbar — slim, no hamburger (nav moved to bottom bar) ----- */
   .topbar {
     padding: 8px 12px;
     gap: 6px;
-    min-height: 50px;
+    min-height: 44px;
     flex-wrap: nowrap;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: var(--bg-elevated);
   }
-  .topbar-menu-btn { display: inline-flex; width: 32px; height: 32px; margin-right: 2px; }
-  .topbar-title    { font-size: 13.5px; font-weight: 600; }
+  .topbar-menu-btn { display: none; }   /* hamburger gone — bottom nav now */
+  .topbar-title    { font-size: 13px; font-weight: 600; }
   .topbar-subtitle { display: none; }   /* save vertical space on phones */
   .topbar-actions {
     margin-left: auto;
     flex-shrink: 0;
     gap: 4px;
   }
-  /* Topbar action buttons collapse to icon-only on phones so the title
-     stays readable. The label is still in the hover/long-press title
-     for screen readers. */
   .topbar-actions .btn {
     padding: 0 8px;
-    min-height: 32px;
-    font-size: 11.5px;
+    min-height: 28px;
+    font-size: 10.5px;
   }
   .topbar-actions .btn:not(.btn-icon) > span { display: none; }
-  .topbar-actions .btn:not(.btn-icon) svg { margin: 0; }
+  .topbar-actions .btn:not(.btn-icon) svg { margin: 0; width: 13px; height: 13px; }
 
-  /* ----- Content padding ----- */
-  .content { padding: 10px 10px 100px; }
+  /* ----- Content padding (extra bottom space for the fixed bar) ----- */
+  .content { padding: 10px 10px calc(72px + env(safe-area-inset-bottom)); }
 
   /* ----- Form / card grids → single column ----- */
   .form-grid,
@@ -2624,43 +2758,43 @@ table { border-collapse: collapse; width: 100%; }
   .stats-grid,
   .stat-grid     { grid-template-columns: repeat(2, 1fr); gap: 8px; }
 
-  /* ----- Typography & card padding ----- */
+  /* ----- Typography & card padding (compact mobile sizing) ----- */
   .card { border-radius: 8px; }
-  .card-header  { padding: 10px 12px; }
-  .card-title   { font-size: 13.5px; }
-  .card-subtitle { font-size: 11px; }
-  .section-heading { font-size: 11px; margin-bottom: 6px; }
+  .card-header   { padding: 9px 10px; }
+  .card-title    { font-size: 12px; }
+  .card-subtitle { font-size: 10px; }
+  .section-heading { font-size: 9.5px; margin-bottom: 5px; }
 
   /* ----- Stats grid (Upload home) ----- */
   .stat,
-  .stat-card           { padding: 10px 12px; }
+  .stat-card             { padding: 8px 10px; }
   .stat .stat-label,
-  .stat-card .stat-label { font-size: 10px; }
+  .stat-card .stat-label { font-size: 9px; }
   .stat .stat-value,
-  .stat-card .stat-value { font-size: 17px; }
+  .stat-card .stat-value { font-size: 15px; }
   .stat .stat-sub,
-  .stat-card .stat-sub   { font-size: 10.5px; }
+  .stat-card .stat-sub   { font-size: 9.5px; }
   .stat svg,
   .stat-card svg         { display: none; }
 
   /* ----- Profile hero & cards ----- */
-  .profile-hero { padding: 12px 12px; gap: 12px; border-radius: 10px; }
-  .profile-hero-name { font-size: 16px; }
-  .profile-hero-avatar { width: 44px; height: 44px; font-size: 15px; }
-  .profile-hero-meta { font-size: 11px; gap: 6px; }
+  .profile-hero { padding: 10px 12px; gap: 10px; border-radius: 10px; }
+  .profile-hero-name   { font-size: 14.5px; }
+  .profile-hero-avatar { width: 38px; height: 38px; font-size: 13px; }
+  .profile-hero-meta   { font-size: 10px; gap: 5px; }
   .profile-hero-meta .profile-hero-divider { display: none; }
 
   /* ----- Settings rows stack ----- */
-  .settings-section { padding: 10px 12px; }
+  .settings-section { padding: 8px 10px; }
   .settings-row {
     flex-direction: column;
     align-items: flex-start;
-    gap: 6px;
-    padding: 6px 0;
+    gap: 5px;
+    padding: 5px 0;
   }
-  .settings-row + .settings-row { padding-top: 10px; margin-top: 6px; }
-  .settings-label { font-size: 12px; }
-  .settings-help  { font-size: 10.5px; }
+  .settings-row + .settings-row { padding-top: 8px; margin-top: 4px; }
+  .settings-label { font-size: 11px; }
+  .settings-help  { font-size: 9.5px; }
 
   /* ----- Review screen — form first, then PDF, then line items ----- */
   .review-pdf-col { height: 320px; }
@@ -2671,40 +2805,65 @@ table { border-collapse: collapse; width: 100%; }
   }
   .review-actions .text-sm { font-size: 11.5px; }
 
-  /* ----- Data view: convert the wide table into a card list ----- */
-  .data-view-v2 { gap: 8px; }
-  .dv-toolbar { flex-wrap: wrap; gap: 8px; padding: 8px 10px; }
+  /* ----- Data view: compact card list -----
+     Each PO row collapses into a 3-line card. Compact mobile fonts:
+       Line 1: PO #  (12px mono bold)   ─────   Total  (12.5px bold)
+       Line 2: Customer    (11px, truncated to 2 lines)
+       Line 3: PO Date  (10px)   ·  Status pill (10px)
+     Secondary fields (supplier, buyer, payment, lines, updated) live
+     only in the expanded detail panel beneath the card. */
+  .data-view-v2 { gap: 6px; }
+  .dv-toolbar { flex-wrap: wrap; gap: 6px; padding: 7px 8px; }
   .dv-search-wrap { flex: 1 1 100%; min-width: 0; }
-  .dv-toolbar > .btn { flex: 1; min-height: 32px; font-size: 12px; }
+  .dv-search-wrap input { font-size: 12px; }
+  .dv-toolbar > .btn { flex: 1; min-height: 28px; font-size: 11px; }
 
   .dv-card { border-radius: 8px; }
   .dv-scroll { overflow-x: hidden; }   /* no horiz scroll once we're cards */
 
-  /* The dv-table becomes a column of cards. We hide the table-y bits
-     (thead, the chevron cell, the frozen-column accents) and let each
-     <tr> render as a stacked card. */
   .dv-table { min-width: 0; table-layout: auto; display: block; }
   .dv-table colgroup,
   .dv-table thead { display: none; }
   .dv-table tbody { display: block; padding: 6px 8px 4px; }
+
   .dv-table tbody tr.dv-row {
     display: grid;
     grid-template-columns: 1fr auto;
-    gap: 2px 8px;
-    padding: 10px 12px;
-    margin-bottom: 6px;
+    column-gap: 6px;
+    row-gap: 3px;
+    padding: 8px 10px;
+    margin-bottom: 5px;
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 9px;
     background: var(--bg-elevated);
     cursor: pointer;
-    box-shadow: none !important;
-    transition: background 120ms, border-color 120ms;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    transition: border-color 120ms, box-shadow 120ms;
+    position: relative;
   }
   .dv-table tbody tr.dv-row:hover,
   .dv-table tbody tr.dv-row.dv-expanded {
-    background: var(--bg-elevated);
+    border-color: var(--accent);
+    box-shadow: 0 2px 8px rgba(79, 70, 229, 0.12);
+  }
+  /* Chevron in the top-right — tap-to-expand affordance */
+  .dv-table tbody tr.dv-row::after {
+    content: '';
+    position: absolute;
+    top: 11px;
+    right: 11px;
+    width: 7px;
+    height: 7px;
+    border-right: 1.5px solid var(--text-subtle);
+    border-bottom: 1.5px solid var(--text-subtle);
+    transform: rotate(-45deg);
+    transition: transform 180ms;
+  }
+  .dv-table tbody tr.dv-row.dv-expanded::after {
+    transform: rotate(45deg);
     border-color: var(--accent);
   }
+
   .dv-table tbody tr.dv-row td {
     border: none !important;
     padding: 0 !important;
@@ -2712,104 +2871,367 @@ table { border-collapse: collapse; width: 100%; }
     box-shadow: none !important;
     position: static !important;
     left: auto !important;
-    font-size: 12px;
-    line-height: 1.4;
+    font-size: 11px;
+    line-height: 1.35;
     text-align: left;
-    /* Default: each cell occupies the whole card row, label::before
-       inline with the value. PO # and Total override this to share the
-       top row. */
     grid-column: 1 / -1;
   }
-  /* Chevron cell is now a corner badge in the top-right; we'll position
-     it via grid order trickery (just hide it — the row itself is tap-
-     to-expand and renders a flat panel beneath). */
+
+  /* Hide everything except the essential 4 fields on the card preview.
+     The expand panel still contains all of them. */
   .dv-table tbody tr.dv-row td.dv-col-expand-cell { display: none; }
-  /* PO # — top row, bold + mono */
+  .dv-table tbody tr.dv-row td[data-label="Supplier"],
+  .dv-table tbody tr.dv-row td[data-label="Buyer"],
+  .dv-table tbody tr.dv-row td[data-label="Payment"],
+  .dv-table tbody tr.dv-row td[data-label="Lines"] {
+    display: none;
+  }
+
+  /* PO # — top-left, mono bold */
   .dv-table tbody tr.dv-row td.dv-c-po {
     grid-column: 1 / 2;
+    grid-row: 1 / 2;
     font-family: 'JetBrains Mono', monospace;
     font-weight: 700;
-    font-size: 13px;
+    font-size: 11.5px;
     color: var(--text);
+    padding-right: 14px !important;
   }
-  /* Total — top right, bold */
+  /* Total — top-right, bold */
   .dv-table tbody tr.dv-row td.dv-col-num.dv-strong {
     grid-column: 2 / 3;
     grid-row: 1 / 2;
     font-weight: 700;
-    font-size: 13px;
+    font-size: 12px;
     text-align: right;
+    color: var(--text);
+    padding-right: 14px !important;
   }
-  /* The remaining cells flow as label-less stack: customer / supplier /
-     buyer / po date / payment / lines / status / updated. Use ::before
-     pseudo-labels so the rep can tell which field is which. */
-  .dv-table tbody tr.dv-row td:not(.dv-c-po):not(.dv-col-num):not(.dv-col-expand-cell)::before,
-  .dv-table tbody tr.dv-row td.dv-col-num:not(.dv-strong)::before {
-    content: attr(data-label);
-    display: inline-block;
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--text-subtle);
-    margin-right: 6px;
+  /* Customer — second row, truncates to two lines */
+  .dv-table tbody tr.dv-row td[data-label="Customer"] {
+    grid-row: 2 / 3;
+    font-size: 11px;
+    color: var(--text);
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
-  .dv-table tbody tr.dv-row td.dv-muted { font-size: 11px; color: var(--text-muted); }
+  .dv-table tbody tr.dv-row td[data-label="Customer"]::before { display: none; }
 
-  /* Expanded panel — full-width inside the card list */
-  .dv-table tbody tr.dv-expand-row { display: block; margin: -6px 0 6px; }
+  /* PO date — meta row left */
+  .dv-table tbody tr.dv-row td[data-label="PO date"] {
+    grid-row: 3 / 4;
+    grid-column: 1 / 2;
+    font-size: 9.5px;
+    color: var(--text-muted);
+  }
+  .dv-table tbody tr.dv-row td[data-label="PO date"]::before { display: none; }
+
+  /* Status pill — meta row right */
+  .dv-table tbody tr.dv-row td[data-label="Status"] {
+    grid-row: 3 / 4;
+    grid-column: 2 / 3;
+    text-align: right;
+    padding-right: 14px !important;
+  }
+  .dv-table tbody tr.dv-row td[data-label="Status"]::before { display: none; }
+  .dv-table tbody tr.dv-row td[data-label="Status"] .badge,
+  .dv-table tbody tr.dv-row td[data-label="Status"] .status-pill {
+    font-size: 9.5px;
+    padding: 1px 6px;
+  }
+
+  /* Updated — hidden on the card preview to keep the meta row clean.
+     Still shows in the expanded panel below. */
+  .dv-table tbody tr.dv-row td.dv-muted[data-label="Updated"] { display: none; }
+
+  /* Expanded panel sits below the card */
+  .dv-table tbody tr.dv-expand-row { display: block; margin: -5px 0 5px; }
   .dv-table tbody tr.dv-expand-row td {
     display: block;
     background: var(--bg-subtle) !important;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 12px !important;
+    border: 1px solid var(--accent);
+    border-radius: 9px;
+    padding: 8px 10px !important;
   }
 
   /* Expanded info panel cards stack instead of going 3-up / 4-up. */
   .dv-panel-row.cols-3,
-  .dv-panel-row.cols-4 { grid-template-columns: 1fr; }
-  .dv-panel-row.notes-audit { grid-template-columns: 1fr; }
-  .dv-panel { gap: 8px; padding: 4px; }
-  .dv-section h4 { font-size: 10px; }
-  .dv-field { gap: 2px; padding: 1px 0; font-size: 11.5px; }
-  .dv-lbl   { font-size: 10px; }
-  .dv-val   { font-size: 11.5px; }
+  .dv-panel-row.cols-4    { grid-template-columns: 1fr; gap: 6px; }
+  .dv-panel-row.notes-audit { grid-template-columns: 1fr; gap: 6px; }
+  .dv-panel { gap: 6px; padding: 2px; }
+  .dv-section { padding: 8px 10px; }
+  .dv-section h4 { font-size: 9px; margin-bottom: 5px; }
+  .dv-field { gap: 1px; padding: 1px 0; font-size: 10.5px; }
+  .dv-lbl   { font-size: 9px; }
+  .dv-val   { font-size: 10.5px; }
 
-  /* Inner line-items mini-table inside the expanded panel — keep it
-     scrollable horizontally because the columns (qty/unit/amount) are
-     still inherently numeric. */
-  .dv-li-table { min-width: 540px; font-size: 10.5px; }
-  .dv-section.dv-section-lines .dv-li-wrap { overflow-x: auto; }
-
-  .dv-footer { padding: 8px 10px; gap: 6px; flex-wrap: wrap; font-size: 11px; }
-  .dv-summary { gap: 6px; }
-  .dv-pagination { gap: 4px; }
-  .dv-pagination button { font-size: 11px; padding: 3px 8px; }
-
-  /* ----- Repository (Ledger) table — similar card-list treatment ----- */
-  .repository-table { min-width: 0; table-layout: auto; display: block; }
-  .repository-table thead { display: none; }
-  .repository-table tbody { display: block; }
-  .repository-table tbody tr {
+  /* Inner line-items mini-table inside the expanded Data view panel:
+     stacked card per line. No horizontal scroll. Layout per card:
+       row 1:  Description.........................   $Amount
+       row 2:  Qty × $Unit · UOM · Required date
+       row 3:  Notes  (only when non-empty)
+     Line number (cell 1) is dropped on mobile — not useful on a card.
+     Every cell is explicitly placed so grid never auto-extends. */
+  .dv-section.dv-section-lines .dv-li-wrap { overflow: visible !important; }
+  .dv-li-table { min-width: 0 !important; display: block; width: 100%; table-layout: auto; }
+  .dv-li-table colgroup,
+  .dv-li-table thead { display: none; }
+  .dv-li-table tbody { display: block; }
+  .dv-li-table tbody tr {
     display: grid;
     grid-template-columns: 1fr auto;
-    gap: 2px 8px;
-    padding: 10px 12px;
-    margin-bottom: 6px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
+    column-gap: 8px;
+    row-gap: 3px;
+    padding: 7px 9px;
+    margin-bottom: 5px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 7px;
     background: var(--bg-elevated);
   }
-  .repository-table tbody tr td {
+  .dv-li-table tbody tr td {
     border: none !important;
     padding: 0 !important;
-    font-size: 12px;
+    background: transparent !important;
+    font-size: 10px;
+    line-height: 1.35;
+    vertical-align: top;
+    text-align: left;
   }
-  /* Hide checkbox + chevron cells on mobile (selection + expand still work
-     via the row's own onClick handler). */
-  .repository-table tbody tr td:nth-child(1),
-  .repository-table tbody tr td:nth-child(2) { display: none; }
+  /* Cell positions:
+     1=#  2=Description  3=Qty  4=UOM  5=Unit  6=Amount  7=Required  8=Notes */
+  .dv-li-table tbody tr td:nth-child(1) { display: none; }   /* line # */
+  .dv-li-table tbody tr td:nth-child(2) {
+    grid-row: 1; grid-column: 1 / 2;
+    font-size: 10.5px;
+    color: var(--text);
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: break-word;
+    min-width: 0;
+  }
+  .dv-li-table tbody tr td:nth-child(6) {
+    grid-row: 1; grid-column: 2 / 3;
+    font-weight: 700;
+    font-size: 11px;
+    text-align: right;
+    color: var(--text);
+    white-space: nowrap;
+  }
+  /* Row 2: stack Qty/UOM/Unit/Required as a single inline meta line.
+     Each cell sits on row 2 spanning both columns; their content uses
+     display: inline-block + ::before pseudo-labels so they read as
+     "450 EA · $145.50 · 18/05/2026". */
+  .dv-li-table tbody tr td:nth-child(3),
+  .dv-li-table tbody tr td:nth-child(4),
+  .dv-li-table tbody tr td:nth-child(5),
+  .dv-li-table tbody tr td:nth-child(7) {
+    grid-row: 2; grid-column: 1 / -1;
+    font-size: 9.5px;
+    color: var(--text-muted);
+    display: inline-block;
+    text-align: left !important;
+  }
+  /* Combine all four into ONE visual row by absolute-positioning
+     them onto a single grid track. Cleanest: make each take auto
+     width using inline-flex containers — but with grid placement,
+     four items on the same row+col stack. So instead, only ONE cell
+     renders the whole meta line; the others are hidden and we use
+     CSS attribute selectors or ::before tricks.
+
+     Simplest approach: hide UOM, Unit, Required individually and
+     show Qty cell's content prefixed with extra info via ::before
+     can't reference siblings. So: just show each on its own row,
+     vertically — readable, no overflow. */
+  .dv-li-table tbody tr td:nth-child(3) { grid-row: 2; }
+  .dv-li-table tbody tr td:nth-child(4) { grid-row: 3; }
+  .dv-li-table tbody tr td:nth-child(5) { grid-row: 4; }
+  .dv-li-table tbody tr td:nth-child(7) { grid-row: 5; }
+  .dv-li-table tbody tr td:nth-child(3)::before { content: 'Qty: '; color: var(--text-subtle); font-weight: 600; }
+  .dv-li-table tbody tr td:nth-child(4)::before { content: 'UOM: '; color: var(--text-subtle); font-weight: 600; }
+  .dv-li-table tbody tr td:nth-child(5)::before { content: 'Unit: '; color: var(--text-subtle); font-weight: 600; }
+  .dv-li-table tbody tr td:nth-child(7)::before { content: 'Required: '; color: var(--text-subtle); font-weight: 600; }
+
+  .dv-li-table tbody tr td:nth-child(8) {
+    grid-row: 6; grid-column: 1 / -1;
+    font-size: 9.5px;
+    color: var(--text-subtle);
+    white-space: pre-wrap;
+    padding-top: 4px !important;
+    border-top: 1px dashed var(--border-subtle);
+  }
+  .dv-li-table tbody tr td:nth-child(8):empty { display: none; }
+
+  .dv-footer { padding: 7px 10px; gap: 5px; flex-wrap: wrap; font-size: 10.5px; }
+  .dv-summary { gap: 5px; font-size: 10.5px; }
+  .dv-pagination { gap: 4px; }
+  .dv-pagination button { font-size: 10.5px; padding: 2px 7px; }
+
+  /* ----- Repository (Ledger) table — same compact card list as Data view.
+     The actual class is `.table` inside `.table-card`. Each <tr> becomes
+     a 3-line card with PO #, Total, Customer, then a meta row (Date ·
+     Status pill). Other columns (Supplier, Buyer, Lines, Created by,
+     Updated, Actions) live in the expanded row beneath the card. */
+  .table-card { overflow: visible; background: transparent; border: none; box-shadow: none; }
+  .table-card > div { overflow-x: visible !important; }
+  .table-card .table { min-width: 0; table-layout: auto; display: block; }
+  .table-card .table thead { display: none; }
+  .table-card .table tbody { display: block; padding: 0; }
+
+  .table-card .table tbody tr {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    column-gap: 6px;
+    row-gap: 3px;
+    padding: 8px 10px;
+    margin-bottom: 5px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--bg-elevated);
+    cursor: pointer;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    transition: border-color 120ms, box-shadow 120ms;
+    position: relative;
+  }
+  .table-card .table tbody tr:not(.expanded-row):hover,
+  .table-card .table tbody tr.expanded {
+    border-color: var(--accent);
+    box-shadow: 0 2px 8px rgba(79, 70, 229, 0.12);
+  }
+  /* Tap-to-expand chevron in the top-right */
+  .table-card .table tbody tr:not(.expanded-row)::after {
+    content: '';
+    position: absolute;
+    top: 11px;
+    right: 11px;
+    width: 7px;
+    height: 7px;
+    border-right: 1.5px solid var(--text-subtle);
+    border-bottom: 1.5px solid var(--text-subtle);
+    transform: rotate(-45deg);
+    transition: transform 180ms;
+  }
+  .table-card .table tbody tr.expanded::after {
+    transform: rotate(45deg);
+    border-color: var(--accent);
+  }
+
+  .table-card .table tbody tr td {
+    border: none !important;
+    padding: 0 !important;
+    background: transparent !important;
+    font-size: 11px;
+    line-height: 1.35;
+    text-align: left;
+    grid-column: 1 / -1;
+    vertical-align: top;
+  }
+
+  /* Hide everything that doesn't belong on the compact preview card.
+     Columns are positional in this table:
+       1 = checkbox       (hide on mobile — bulk select moves to a
+                            single tap on the card itself if needed)
+       2 = chevron        (we have our own ::after chevron)
+       3 = PO #
+       4 = Customer
+       5 = Supplier        (hide on card preview)
+       6 = Buyer           (hide)
+       7 = PO Date
+       8 = Status
+       9 = Lines           (hide)
+       10 = Total
+       11 = Created by     (hide on card preview)
+       12 = Updated        (hide)
+       13 = Actions        (hide — admins use the expanded row's actions) */
+  .table-card .table tbody tr td:nth-child(1),
+  .table-card .table tbody tr td:nth-child(2),
+  .table-card .table tbody tr td:nth-child(5),
+  .table-card .table tbody tr td:nth-child(6),
+  .table-card .table tbody tr td:nth-child(9),
+  .table-card .table tbody tr td:nth-child(11),
+  .table-card .table tbody tr td:nth-child(12),
+  .table-card .table tbody tr td:nth-child(13) {
+    display: none;
+  }
+
+  /* PO # cell (3rd column) — top-left */
+  .table-card .table tbody tr td:nth-child(3) {
+    grid-column: 1 / 2;
+    grid-row: 1 / 2;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    font-size: 11.5px;
+    color: var(--text);
+    padding-right: 14px !important;
+  }
+  /* Total (10th column) — top-right */
+  .table-card .table tbody tr td:nth-child(10) {
+    grid-column: 2 / 3;
+    grid-row: 1 / 2;
+    font-weight: 700;
+    font-size: 12px;
+    text-align: right;
+    color: var(--text);
+    padding-right: 14px !important;
+  }
+  /* Customer (4th column) — second row */
+  .table-card .table tbody tr td:nth-child(4) {
+    grid-column: 1 / -1;
+    grid-row: 2 / 3;
+    font-size: 11px;
+    color: var(--text);
+    line-height: 1.3;
+  }
+  /* PO Date (7th column) — meta row left */
+  .table-card .table tbody tr td:nth-child(7) {
+    grid-column: 1 / 2;
+    grid-row: 3 / 4;
+    font-size: 9.5px;
+    color: var(--text-muted);
+  }
+  /* Status (8th column) — meta row right */
+  .table-card .table tbody tr td:nth-child(8) {
+    grid-column: 2 / 3;
+    grid-row: 3 / 4;
+    text-align: right;
+    padding-right: 14px !important;
+  }
+  .table-card .table tbody tr td:nth-child(8) .badge,
+  .table-card .table tbody tr td:nth-child(8) .status-pill,
+  .table-card .table tbody tr td:nth-child(8) > * {
+    font-size: 9.5px;
+    padding: 1px 6px;
+  }
+
+  /* Expanded row — RepositoryTable renders extra detail in a separate
+     <tr> after the main row. Style it as a flat detail panel below the
+     card instead of an inline table row. */
+  .table-card .table tbody tr.expanded-row {
+    display: block;
+    margin: -6px 0 6px;
+    padding: 0;
+    border: 1px solid var(--accent);
+    border-radius: 10px;
+    background: var(--bg-subtle);
+    cursor: default;
+  }
+  .table-card .table tbody tr.expanded-row::after { content: none; }
+  .table-card .table tbody tr.expanded-row > td {
+    display: block;
+    grid-column: auto;
+    grid-row: auto;
+    padding: 10px 12px !important;
+    background: transparent !important;
+  }
+  .table-card .table tbody tr.expanded-row > td:nth-child(1) {
+    display: block;   /* override the nth-child hiding above */
+  }
+
+  /* Stats row above the Ledger — match the Upload stats compaction */
+  .table-card + .stat-grid,
+  .stat-grid { gap: 8px; }
 
   /* ----- Team table → card list ----- */
   .team-table { display: block; }
@@ -2828,15 +3250,165 @@ table { border-collapse: collapse; width: 100%; }
   .team-table .col-actions .flex { flex-wrap: wrap; gap: 6px; justify-content: flex-start; }
   .team-table .col-actions .btn { padding: 4px 10px; font-size: 11.5px; flex: 0 0 auto; min-height: 30px; }
 
-  /* ----- Editable line items table inside Edit form — keep the
-       horizontal scroll, but tighten cell heights and font ----- */
-  .line-items-table { font-size: 11.5px; }
-  .line-items-table th { padding: 8px 10px; font-size: 9.5px; }
-  .line-items-table td { padding: 3px 3px; }
-  .line-items-table input { height: 28px; font-size: 11.5px; padding: 0 6px; }
-  .line-items-table .li-desc-textarea { font-size: 11.5px; padding: 5px 6px; }
-  .line-items-add-row { padding: 8px 10px; font-size: 11.5px; }
-  .line-items-totals  { padding: 8px 12px; }
+  /* ----- Editable line items (Edit form) — convert to a stacked card
+       per line. No more horizontal scroll. Each line item card has:
+         row 1:  #_____   [delete]
+         row 2:  Description (full-width textarea)
+         row 3:  Qty   UOM   Unit Price
+         row 4:  Required date
+         row 5:  Amount (display)
+         row 6:  Notes (full-width)
+     ----- */
+  .line-items-card { padding: 0; }
+  .line-items-card > div[style*="overflowX"] { overflow: visible !important; }
+  .line-items-table { min-width: 0; display: block; font-size: 11px; }
+  .line-items-table colgroup,
+  .line-items-table thead { display: none; }
+  .line-items-table tbody { display: block; padding: 6px 8px; }
+
+  .line-items-table tbody tr {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr) auto;
+    column-gap: 6px;
+    row-gap: 6px;
+    padding: 10px;
+    margin-bottom: 6px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-elevated);
+  }
+  .line-items-table tbody tr td {
+    border: none !important;
+    padding: 0 !important;
+    background: transparent !important;
+    vertical-align: top;
+  }
+
+  /* Cell 1 = # (line number) → grid row 1, col 1, narrow */
+  .line-items-table tbody tr td:nth-child(1) {
+    grid-row: 1 / 2;
+    grid-column: 1 / 2;
+  }
+  .line-items-table tbody tr td:nth-child(1) input {
+    text-align: left;
+    width: 100%;
+  }
+  /* Cell 1 — show "Line #" label hint via prepending an inline label */
+  .line-items-table tbody tr td:nth-child(1)::before {
+    content: 'Line';
+    display: block;
+    font-size: 8.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-subtle);
+    margin-bottom: 2px;
+  }
+
+  /* Cell 2 = Description textarea → row 2, full width */
+  .line-items-table tbody tr td:nth-child(2) {
+    grid-row: 2 / 3;
+    grid-column: 1 / -1;
+  }
+  .line-items-table tbody tr td:nth-child(2)::before {
+    content: 'Description';
+    display: block;
+    font-size: 8.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-subtle);
+    margin-bottom: 3px;
+  }
+  /* Cell 3 = Qty */
+  .line-items-table tbody tr td:nth-child(3) { grid-row: 3 / 4; grid-column: 1 / 2; }
+  .line-items-table tbody tr td:nth-child(3)::before {
+    content: 'Qty';
+    display: block;
+    font-size: 8.5px; font-weight: 600; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--text-subtle); margin-bottom: 2px;
+  }
+  /* Cell 4 = UOM */
+  .line-items-table tbody tr td:nth-child(4) { grid-row: 3 / 4; grid-column: 2 / 3; }
+  .line-items-table tbody tr td:nth-child(4)::before {
+    content: 'UOM';
+    display: block;
+    font-size: 8.5px; font-weight: 600; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--text-subtle); margin-bottom: 2px;
+  }
+  /* Cell 5 = Unit Price */
+  .line-items-table tbody tr td:nth-child(5) { grid-row: 3 / 4; grid-column: 3 / 4; }
+  .line-items-table tbody tr td:nth-child(5)::before {
+    content: 'Unit';
+    display: block;
+    font-size: 8.5px; font-weight: 600; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--text-subtle); margin-bottom: 2px;
+  }
+  /* Cell 6 = Amount (display-only) — row 4, col 1 */
+  .line-items-table tbody tr td:nth-child(6) {
+    grid-row: 4 / 5; grid-column: 1 / 3;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    font-size: 12.5px;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+  }
+  .line-items-table tbody tr td:nth-child(6)::before {
+    content: 'Amount';
+    font-size: 8.5px; font-weight: 600; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--text-subtle);
+    margin-right: 8px;
+    align-self: center;
+  }
+  /* Cell 7 = Required date — row 4, col 3 */
+  .line-items-table tbody tr td:nth-child(7) { grid-row: 4 / 5; grid-column: 3 / 4; }
+  .line-items-table tbody tr td:nth-child(7)::before {
+    content: 'Required';
+    display: block;
+    font-size: 8.5px; font-weight: 600; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--text-subtle); margin-bottom: 2px;
+  }
+  /* Cell 8 = Notes input — row 5, full width */
+  .line-items-table tbody tr td:nth-child(8) { grid-row: 5 / 6; grid-column: 1 / -1; }
+  .line-items-table tbody tr td:nth-child(8)::before {
+    content: 'Notes';
+    display: block;
+    font-size: 8.5px; font-weight: 600; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--text-subtle); margin-bottom: 2px;
+  }
+  /* Cell 9 = delete trash button — row 1, top-right */
+  .line-items-table tbody tr td:nth-child(9) {
+    grid-row: 1 / 2;
+    grid-column: 4 / 5;
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+  }
+
+  .line-items-table input,
+  .line-items-table .li-desc-textarea {
+    height: 28px;
+    font-size: 11.5px;
+    padding: 0 8px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    border-radius: 5px;
+    width: 100%;
+  }
+  .line-items-table .li-desc-textarea {
+    min-height: 60px;
+    height: auto;
+    padding: 6px 8px;
+  }
+
+  .line-items-add-row {
+    padding: 8px 10px;
+    font-size: 11px;
+    border-top: 1px solid var(--border-subtle);
+  }
+  .line-items-totals { padding: 8px 12px; font-size: 12px; }
+  .line-items-totals .value.grand { font-size: 14px; }
 
   /* ----- Auth screen ----- */
   .auth-card { width: calc(100vw - 24px); max-width: 360px; padding: 18px 18px; }
@@ -2847,17 +3419,40 @@ table { border-collapse: collapse; width: 100%; }
   .toast { left: 12px; right: 12px; bottom: 12px; max-width: none; font-size: 12px; }
 
   /* ----- Buttons / tap targets ----- */
-  .btn         { padding: 0 12px; min-height: 34px; font-size: 12.5px; }
-  .btn.btn-sm  { padding: 0 10px; min-height: 30px; font-size: 11.5px; }
-  .btn.btn-lg  { min-height: 40px; font-size: 13.5px; }
-  .nav-item    { padding: 10px 16px; min-height: 42px; }
+  .btn         { padding: 0 10px; min-height: 30px; font-size: 11.5px; }
+  .btn.btn-sm  { padding: 0 9px;  min-height: 26px; font-size: 10.5px; }
+  .btn.btn-lg  { min-height: 36px; font-size: 12.5px; }
+  .nav-item    { padding: 9px 14px; min-height: 36px; font-size: 12px; }
+  .nav-section-title { font-size: 9.5px; padding: 6px 14px 4px; }
 
   /* ----- Inputs ----- */
   .input, .textarea {
     font-size: 13px;     /* 13+ avoids iOS Safari auto-zoom on focus */
-    padding: 7px 10px;
+    padding: 6px 9px;
+    min-height: 32px;
   }
-  .label { font-size: 11.5px; }
+  .label { font-size: 10.5px; }
+
+  /* Field error/help text */
+  .text-sm { font-size: 10.5px; }
+
+  /* Segmented (the 7d/30d/90d switcher in the Ledger) */
+  .segmented button { font-size: 10.5px; padding: 3px 9px; }
+
+  /* Filter chip pills under the Ledger search */
+  .filter-chip,
+  .filter-chip-active { font-size: 10.5px; padding: 4px 10px; }
+
+  /* Tone-down toasts */
+  .toast { font-size: 11px; padding: 10px 14px; border-radius: 8px; }
+
+  /* Catch-all: anywhere we forgot, body inherits a slightly smaller base */
+  body { font-size: 13px; }
+
+  /* Prevent any rogue element from forcing horizontal scroll on the
+     whole page. Anything that *really* needs to overflow (PDF preview,
+     a wide PO source thumbnail) sets its own overflow-x. */
+  html, body { overflow-x: hidden; }
 }
 
 /* Slightly larger tablets — still narrow enough to want single-col
