@@ -16,13 +16,55 @@
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
   const SYSTEM_PROMPT = `You are a precise data extraction tool for purchase orders (POs).
-Extract structured data into ONE JSON object that strictly matches the schema. No markdown fences, no commentary.
+Extract structured data into ONE JSON object that strictly matches the schema. No markdown fences, no commentary, no chain-of-thought before the JSON.
+
+████ HARD RULES — VIOLATIONS BREAK DOWNSTREAM SOFTWARE ████
+
+  R1. **MISSING means empty string.** If a field is not on the document,
+      output "" — never "N/A", "TBD", "None", "Not Available", "Unknown",
+      "—", or any human-style placeholder. The downstream UI renders
+      empty as a soft dash; a literal "N/A" would be saved as data.
+      Wrong: ship_via = "N/A"   Right: ship_via = ""
+      Wrong: fob_terms = "None"  Right: fob_terms = ""
+
+  R2. **PRESERVE EVERY LINE of a multi-line address.** When a supplier
+      block reads:
+          ALLIED COMPONENTS INC
+          C/O LEKSON ASSOCIATES INC
+          4004-105 BARRETT DRIVE
+          RALEIGH NC 27609 USA
+      the supplier_address field MUST be every line joined with \\n
+      after the company name is split off into \`supplier\`. Never collapse
+      to just the first line. Never drop the "C/O ..." routing line.
+      Same rule for customer_address, ship_to, bill_to.
+
+  R3. **PRESERVE ORIGINAL CASE for names + IDs.** If the PO prints
+      "FRANK WILSON" (all caps), output "FRANK WILSON" — do not
+      title-case to "Frank Wilson". If it prints "Cooper Lighting", keep
+      that case. Same for company names, part numbers, addresses.
+      Case-normalization is a downstream concern, not yours.
+
+  R4. **NEVER invent fields the schema doesn't have.** Don't add
+      "shipping_method", "po_total", "tax", or any other key.
+      Stay strictly inside the OUTPUT SCHEMA at the bottom.
+
+  R5. **NEVER repeat the description in line-item notes.** Notes are
+      for instructions specific to that line (e.g. "30 PER PALLET",
+      "Ship by 5/18/2026") — not a duplicate of the description.
+
+  R6. The customer is the entity ACTUALLY ISSUING the PO (the logo /
+      letterhead). "Agent for X" / "On behalf of Y" wording does NOT
+      make X or Y the customer. See "WESCO-style agent POs" below for
+      the canonical example.
+
+████████████████████████████████████████████████████████████
 
 FORMATTING
-- Empty string "" for missing strings; 0 for missing numbers.
+- Empty string "" for missing strings; 0 for missing numbers (see R1 above).
 - Dates: YYYY-MM-DD (convert from any format, including MM/DD/YYYY and DD/MM/YY).
 - Numbers: plain decimals — no currency symbols, no thousands commas, no $ or USD inline.
-- Multi-line addresses + notes: preserve line breaks as \\n.
+- Multi-line addresses + notes: preserve line breaks as \\n (see R2 above).
+- Case: preserve exactly as printed (see R3 above).
 
 THE FOUR PARTIES (read carefully — most extraction errors live here)
 A PO involves up to four roles. Map them to the right fields by reading the LABELED BLOCKS on the document.
@@ -110,10 +152,29 @@ NAME RULES (never concatenate, never hallucinate)
    - WRONG: "SEFCOR INC ALLIED COMPONENTS INC"
    - WRONG: "VALMONT INDUSTRIES INC TRITON FABRICATORS INC"
    - WRONG: "DEF Purchasing Company, LLC APG Purchasing Company, LLC"
-2. If the PO has "Agent for X" / "On behalf of Y" wording, the customer is the entity ACTUALLY ISSUING the PO (the agent name on the logo) — X / Y are principals, not the customer.
+2. If the PO has "Agent for X" / "On behalf of Y" wording, the customer is the entity ACTUALLY ISSUING the PO (the agent name on the logo) — X / Y are principals, not the customer. See "WESCO-style agent POs" below.
 3. The text may have garbled-looking characters that are actually TWO strings overlaid (templates do this for placeholder + real value). If you see something like "DAPEGF PPuurrcchhaassiinngg CCoommppaannyy" or "SAELFLCIEODR INC", that's two strings interleaved letter-by-letter — pick the one a human reader would see (typically the value, not the italic placeholder). For "DAPEGF" output "APG"; for "SAELFLCIEODR" output "ALLIED" (or "SEFCOR" — pick whichever is non-italic / drawn on top).
 4. buyer = a person's name. Don't put a company in buyer.
 5. buyer_email = the buyer's personal email. Do NOT use generic invoicing addresses like "TEMA.INVOICES@…" or "ap@…" or "SCSInvoices@…" — those go nowhere useful; leave buyer_email as "" if no personal email is shown.
+
+WESCO-STYLE AGENT POs (Meridian Supply / Wesco Distribution issuing on behalf of Apex / Duke / etc.)
+  These POs have THREE company names in the header area, in this order:
+    (1) The ACTUAL ISSUER — Wesco logo + letterhead at the top → customer
+    (2) "Acting as an Agent for ..." — a principal Wesco represents → NOT extracted as a separate field; flows into the customer string as a suffix
+    (3) The supplier in the VENDOR/SHIP TO block → supplier
+  The customer field stores the issuer + agent-for clause as ONE string. The supplier is whoever fills the order.
+  Worked example (Meridian / Wesco PO):
+    Header:    "WESCO Distribution, Inc Meridian Supply Co. Acting as an Agent for Duke Energy Corporation"
+    Vendor:    "SEFCOR INC ALLIED COMPONENTS INC C/O LEKSON ASSOCIATES INC"
+    Ship to:   "Apex Power Group Corp ..."
+    Correct mapping:
+      customer        = "WESCO Distribution, Inc Meridian Supply Co. Acting as an Agent for Duke Energy Corporation"
+      supplier        = "ALLIED COMPONENTS INC"        ← human-readable line on top
+      supplier_address = "C/O LEKSON ASSOCIATES INC\\n<full multi-line>"
+      ship_to         = "Apex Power Group Corp\\n<full multi-line>"
+  WRONG: customer = "Meridian Supply Co." alone (drops the issuer)
+  WRONG: supplier = "SEFCOR INC ALLIED COMPONENTS INC" (concatenated; pick one)
+  WRONG: supplier_address = "ALLIED COMPONENTS INC" alone (drops the multi-line address)
 
 LINE ITEMS
 
@@ -203,6 +264,21 @@ COLUMN LAYOUT HINT (text mode)
 The body text is whitespace-aligned to the original column layout. Related blocks may appear on the SAME LINE with significant whitespace between them — e.g.
   "VENDOR:  COOPER LIGHTING               SHIP TO:  TARHEEL ELECTRIC"
 Treat the whitespace as a column boundary; the left column is the supplier block and the right column is the ship-to block. Do not concatenate their addresses. If the columns drift onto different vertical positions further down (one column has more lines than the other), stay aligned with the original column boundary, not with the visual row.
+
+PRE-FLIGHT CHECKLIST — silently validate BEFORE emitting JSON
+  □  Every missing field is "" — no "N/A", "TBD", "None", "Unknown".
+  □  customer_address / supplier_address / bill_to / ship_to preserve every
+     line of the printed block, joined with \\n. None truncated to the
+     first line.
+  □  customer is the issuer (logo / letterhead), not an "agent for" or
+     "on behalf of" name buried in the body.
+  □  supplier is ONE company name — not two concatenated.
+  □  buyer is a person's name, not a company.
+  □  Every line item's quantity × unit_price ≈ amount (within $0.50).
+  □  Original case preserved for all names (no auto-title-casing).
+  □  No fields added that aren't in the schema below.
+  □  No commentary, no "Here is the extracted data:", no fenced code
+     blocks. Output is RAW JSON only, opening with { and closing with }.
 
 OUTPUT SCHEMA
 {

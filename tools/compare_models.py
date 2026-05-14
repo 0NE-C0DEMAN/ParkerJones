@@ -40,11 +40,26 @@ from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Production-equivalent extraction prompt.
-# Mirrors frontend/src/lib/gemini.js → SYSTEM_PROMPT (Description-as-single-
-# field variant, after the Phase-1 refactor). If you change one, change
-# both — this script's whole point is to compare like-for-like.
+# Source of truth: frontend/src/lib/gemini.js → SYSTEM_PROMPT.
+# Read it dynamically so this script never drifts from production.
 # ---------------------------------------------------------------------------
-SYSTEM_PROMPT = """You are a precise data extraction tool for purchase orders (POs).
+def _load_production_prompt() -> str:
+    import re
+    src = Path(__file__).resolve().parent.parent / "frontend" / "src" / "lib" / "gemini.js"
+    text = src.read_text(encoding="utf-8")
+    m = re.search(r"const SYSTEM_PROMPT = `([\s\S]*?)`;\n", text)
+    if not m:
+        raise RuntimeError("Could not extract SYSTEM_PROMPT from gemini.js")
+    # Unescape template-literal backticks so the prompt sent matches what
+    # Gemini receives at runtime (the browser unescapes \` automatically).
+    return m.group(1).replace("\\`", "`").replace("\\\\n", "\\n")
+
+
+SYSTEM_PROMPT = _load_production_prompt()
+
+# Legacy inline copy retained as a comment in case anyone wants to read the
+# script and see a snippet of the prompt without opening the JS file:
+_LEGACY_HEAD = """You are a precise data extraction tool for purchase orders (POs).
 Extract structured data into ONE JSON object that strictly matches the schema. No markdown fences, no commentary.
 
 LINE ITEMS — DESCRIPTION IS THE ONLY FIELD FOR PARTS + PRODUCT TEXT
@@ -253,6 +268,7 @@ def main():
     parser.add_argument("pdfs", nargs="+", help="PDFs to test (globs allowed).")
     parser.add_argument("--model-a", default="gemini-2.5-flash")
     parser.add_argument("--model-b", default="gemma-3-27b-it")
+    parser.add_argument("--solo", help="Single-model mode: extract with one model only and print its JSON. Skips comparison.")
     parser.add_argument("--key", default=os.environ.get("GEMINI_API_KEY") or os.environ.get("OPENROUTER_API_KEY"))
     args = parser.parse_args()
 
@@ -267,6 +283,33 @@ def main():
         paths.extend(Path(m) for m in (matched or [p]))
 
     overall = []
+
+    # Solo mode — one model, one extraction per file, dump the JSON.
+    # Useful for evaluating a single model's behavior on every sample
+    # without hitting the other model's rate limit.
+    if args.solo:
+        for pdf in paths:
+            if not pdf.exists():
+                print(f"[skip] {pdf} not found")
+                continue
+            print(f"\n{'='*80}\n  {pdf.name}  ({args.solo})\n{'='*80}")
+            try:
+                rec, dt = call_llm(args.solo, args.key, pdf)
+            except Exception as e:
+                print(f"  FAILED: {e}")
+                continue
+            flat = flatten(rec)
+            print(f"  Latency: {dt:.2f}s")
+            for k, v in flat.items():
+                print(f"  {k:<18} {short(v)}")
+            # Show line items briefly
+            for i, li in enumerate(rec.get("line_items") or [], 1):
+                print(f"  line {i:<2} qty={li.get('quantity')} uom={li.get('uom')} "
+                      f"unit_price={li.get('unit_price')} amount={li.get('amount')}")
+                desc = (li.get("description") or "").replace("\n", " | ")
+                print(f"           description={short(desc)}")
+        return
+
     for pdf in paths:
         if not pdf.exists():
             print(f"[skip] {pdf} not found")
