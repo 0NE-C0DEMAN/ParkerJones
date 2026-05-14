@@ -50,11 +50,13 @@
   }
 
   function ProfileCard({ user, onUserUpdated, pushToast }) {
+    const isAdmin = user?.role === 'admin';
     const [name, setName] = useState(user?.full_name || '');
     const [email, setEmail] = useState(user?.email || '');
     // Password is only required when changing the email — gating change
     // on a session token alone would let a stolen token re-bind the
-    // account to an attacker's address.
+    // account to an attacker's address. Reps never see the email field
+    // as editable, so they don't see this either.
     const [emailPassword, setEmailPassword] = useState('');
     const [busy, setBusy] = useState(false);
 
@@ -67,7 +69,7 @@
 
     const trimmedEmail = email.trim().toLowerCase();
     const nameDirty = name.trim() !== (user?.full_name || '').trim();
-    const emailDirty = trimmedEmail !== (user?.email || '').trim().toLowerCase();
+    const emailDirty = isAdmin && trimmedEmail !== (user?.email || '').trim().toLowerCase();
     const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail);
     const canSave = !busy
       && (nameDirty || (emailDirty && emailValid && emailPassword.length > 0));
@@ -78,7 +80,8 @@
       try {
         let updated = null;
         // Order matters: change email first (needs the OLD password to
-        // confirm). If it fails, bail before touching name.
+        // confirm). If it fails, bail before touching name. Reps can't
+        // reach this branch — emailDirty stays false for them.
         if (emailDirty && emailValid) {
           updated = await window.App.backend.changeMyEmail({
             new_email: trimmedEmail,
@@ -102,7 +105,7 @@
       <Card noPadding>
         <CardHeader
           title="Edit profile"
-          subtitle="Your display name and sign-in email."
+          subtitle={isAdmin ? "Your display name and sign-in email." : "Your display name in the ledger and to teammates."}
           icon={<Icon name="user" size={12} />}
         />
         <div className="settings-section">
@@ -113,16 +116,22 @@
             label="Email"
             error={emailDirty && !emailValid ? 'Enter a valid email address' : null}
           >
+            {/* Admins can rebind their own email; reps can't (their email
+                is set by an admin from the Team page, and acts as the
+                sign-in identifier the admin gave them). */}
             <Input
-              type="email"
+              type={isAdmin ? 'email' : 'text'}
               value={email}
-              onChange={setEmail}
+              onChange={isAdmin ? setEmail : undefined}
+              disabled={!isAdmin}
               placeholder="you@company.com"
               autoComplete="email"
               style={{ fontFamily: 'JetBrains Mono', fontSize: 12 }}
             />
             <span className="text-sm text-subtle" style={{ fontSize: 11, marginTop: 4 }}>
-              Sign-in identifier. Changing it requires your current password.
+              {isAdmin
+                ? 'Sign-in identifier. Changing it requires your current password.'
+                : 'Sign-in identifier — change requires your admin to update it on the Team page.'}
             </span>
           </Field>
           {emailDirty && (

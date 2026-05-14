@@ -240,10 +240,11 @@ def change_password(payload: PasswordChange, user: auth.CurrentUser = Depends(au
 
 
 @app.post("/api/auth/email", response_model=auth.CurrentUser)
-def change_email(payload: EmailChange, user: auth.CurrentUser = Depends(auth.current_user)):
-    """User-initiated email change. Requires the current password (so a
-    stolen session token alone can't re-bind the account to an attacker's
-    email)."""
+def change_email(payload: EmailChange, user: auth.CurrentUser = Depends(auth.require_admin)):
+    """Admin-only email self-service. Requires the current password as a
+    confirmation step (so a stolen admin session token alone can't re-bind
+    the account to an attacker's email). Reps don't have this — their
+    sign-in email is the identifier their admin set on the Team page."""
     full_row = db.get_user(user.id)
     if not full_row or not auth.verify_password(payload.current_password, full_row.get("password_hash") or ""):
         raise HTTPException(400, "Current password is incorrect.")

@@ -37,6 +37,19 @@
       });
     }, []);
 
+    // ---- mobile sidebar overlay state ----
+    // Desktop uses `sidebarCollapsed` (icon-only narrow rail). On phones
+    // (≤640px) the sidebar instead becomes an off-canvas drawer; this
+    // toggles it open/closed. Lives in memory only — every page load
+    // starts with the drawer closed.
+    const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+    const toggleMobileSidebar = useCallback(() => {
+      setMobileSidebarOpen((v) => !v);
+    }, []);
+    const closeMobileSidebar = useCallback(() => {
+      setMobileSidebarOpen(false);
+    }, []);
+
     const [view, setView] = useState('upload');
     const [pending, setPending] = useState(null);
     const [repository, setRepository] = useState([]);
@@ -361,6 +374,15 @@
       setView(next);
     }, [pending]);
 
+    // Auto-close the mobile drawer on navigation — tapping a nav item
+    // should land you on the new view, not leave you staring at the
+    // overlay. Declared with the other top-level hooks so we never sit
+    // below a conditional `return` (hooks-order rule).
+    const handleNavigateMobile = useCallback((next) => {
+      closeMobileSidebar();
+      handleNavigate(next);
+    }, [closeMobileSidebar, handleNavigate]);
+
     // ---- auth callbacks ----
     const handleAuthenticated = useCallback((u) => {
       setUser(u);
@@ -442,19 +464,33 @@
     ) : null;
 
     return (
-      <div className="app">
+      <div className={'app' + (mobileSidebarOpen ? ' mobile-sidebar-open' : '')}>
         <Sidebar
           activeView={view}
-          onNavigate={handleNavigate}
+          onNavigate={handleNavigateMobile}
           repositoryCount={repository.length}
           pendingCount={pending ? 1 : 0}
           user={user}
           onSignOut={handleSignOut}
           collapsed={sidebarCollapsed}
           onToggleCollapsed={toggleSidebar}
+          mobileOpen={mobileSidebarOpen}
+        />
+        {/* Backdrop appears behind the off-canvas sidebar on phones.
+            Tapping it closes the drawer. Pointer-events toggle in CSS
+            so it's inert on desktop. */}
+        <div
+          className={'sidebar-backdrop' + (mobileSidebarOpen ? ' visible' : '')}
+          onClick={closeMobileSidebar}
+          aria-hidden="true"
         />
         <main className="main">
-          <TopBar title={titleFor} subtitle={subtitleFor} actions={topbarActions} />
+          <TopBar
+            title={titleFor}
+            subtitle={subtitleFor}
+            actions={topbarActions}
+            onMobileMenu={toggleMobileSidebar}
+          />
 
           {!backendOnline && <BackendOfflineBanner onRetry={async () => {
             const ok = await window.App.backend.checkHealth();

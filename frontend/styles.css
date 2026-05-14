@@ -2491,3 +2491,379 @@ table { border-collapse: collapse; width: 100%; }
 
 .dv-panel-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
 
+/* =============================================================================
+   Topbar — small accents that play with the mobile hamburger.
+   The hamburger button is hidden on desktop (display: none) and revealed
+   inside the mobile media query below.
+   ============================================================================= */
+.topbar-titles { min-width: 0; flex: 1; }
+.topbar-titles .topbar-title,
+.topbar-titles .topbar-subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.topbar-menu-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin-right: 4px;
+  border-radius: 8px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.topbar-menu-btn:hover { background: var(--bg-subtle); color: var(--text); }
+.topbar-menu-btn:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--shadow-focus);
+}
+
+/* The off-canvas backdrop sits behind the sidebar on phones. It's
+   layout-inert (pointer-events:none) and invisible until the drawer
+   opens. Stays out of the way on desktop entirely. */
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.42);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 90;
+  transition: opacity 200ms ease-out;
+}
+
+/* =============================================================================
+   MOBILE — applies at viewport widths ≤ 640px. Every rule inside this
+   block is opt-in for phones; desktop layout is byte-for-byte identical
+   above 640px.
+
+   The mobile pass is a holistic redesign, not just a sidebar swap:
+     * Smaller base fonts (11-13px text, 14-15px titles)
+     * Tighter card padding (10-12px instead of 14-22px)
+     * Off-canvas sidebar drawer with backdrop
+     * Topbar slimmed + action buttons fit on the same row
+     * Stats cards as a tight 2×2 grid with small numerals
+     * Data + Ledger tables: rendered as a vertical card-list (one card
+       per PO) instead of a 10-column horizontal-scroll table — way
+       more readable on a 375px viewport
+     * Form grids collapse to 1 column; settings rows stack
+     * Bottom-fixed action bar stays comfortable above the home indicator
+   ============================================================================= */
+@media (max-width: 640px) {
+  /* ----- Off-canvas sidebar ----- */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 250px;
+    z-index: 100;
+    transform: translateX(-100%);
+    box-shadow: none;
+    transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1),
+                box-shadow 220ms ease-out;
+  }
+  .app.mobile-sidebar-open .sidebar {
+    transform: translateX(0);
+    box-shadow: 0 18px 48px rgba(15, 23, 42, 0.28);
+  }
+  .sidebar.collapsed { width: 250px; }
+  .sidebar .brand-collapse-glyph { display: none; }
+  .app.mobile-sidebar-open .sidebar-backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .main { width: 100%; max-width: 100%; }
+
+  /* ----- Topbar — slim, single-row when it can fit ----- */
+  .topbar {
+    padding: 8px 12px;
+    gap: 6px;
+    min-height: 50px;
+    flex-wrap: nowrap;
+  }
+  .topbar-menu-btn { display: inline-flex; width: 32px; height: 32px; margin-right: 2px; }
+  .topbar-title    { font-size: 13.5px; font-weight: 600; }
+  .topbar-subtitle { display: none; }   /* save vertical space on phones */
+  .topbar-actions {
+    margin-left: auto;
+    flex-shrink: 0;
+    gap: 4px;
+  }
+  /* Topbar action buttons collapse to icon-only on phones so the title
+     stays readable. The label is still in the hover/long-press title
+     for screen readers. */
+  .topbar-actions .btn {
+    padding: 0 8px;
+    min-height: 32px;
+    font-size: 11.5px;
+  }
+  .topbar-actions .btn:not(.btn-icon) > span { display: none; }
+  .topbar-actions .btn:not(.btn-icon) svg { margin: 0; }
+
+  /* ----- Content padding ----- */
+  .content { padding: 10px 10px 100px; }
+
+  /* ----- Form / card grids → single column ----- */
+  .form-grid,
+  .form-grid-3 { grid-template-columns: 1fr; gap: 8px; }
+  .form-grid .col-span-2,
+  .form-grid-3 .col-span-2,
+  .form-grid-3 .col-span-3 { grid-column: auto; }
+  .grid-2        { grid-template-columns: 1fr; gap: 8px; }
+  .settings-grid { grid-template-columns: 1fr; gap: 8px; }
+  .profile-grid  { grid-template-columns: 1fr; gap: 8px; }
+  .charts-grid   { grid-template-columns: 1fr; gap: 8px; }
+  .stats-grid,
+  .stat-grid     { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+
+  /* ----- Typography & card padding ----- */
+  .card { border-radius: 8px; }
+  .card-header  { padding: 10px 12px; }
+  .card-title   { font-size: 13.5px; }
+  .card-subtitle { font-size: 11px; }
+  .section-heading { font-size: 11px; margin-bottom: 6px; }
+
+  /* ----- Stats grid (Upload home) ----- */
+  .stat,
+  .stat-card           { padding: 10px 12px; }
+  .stat .stat-label,
+  .stat-card .stat-label { font-size: 10px; }
+  .stat .stat-value,
+  .stat-card .stat-value { font-size: 17px; }
+  .stat .stat-sub,
+  .stat-card .stat-sub   { font-size: 10.5px; }
+  .stat svg,
+  .stat-card svg         { display: none; }
+
+  /* ----- Profile hero & cards ----- */
+  .profile-hero { padding: 12px 12px; gap: 12px; border-radius: 10px; }
+  .profile-hero-name { font-size: 16px; }
+  .profile-hero-avatar { width: 44px; height: 44px; font-size: 15px; }
+  .profile-hero-meta { font-size: 11px; gap: 6px; }
+  .profile-hero-meta .profile-hero-divider { display: none; }
+
+  /* ----- Settings rows stack ----- */
+  .settings-section { padding: 10px 12px; }
+  .settings-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 6px 0;
+  }
+  .settings-row + .settings-row { padding-top: 10px; margin-top: 6px; }
+  .settings-label { font-size: 12px; }
+  .settings-help  { font-size: 10.5px; }
+
+  /* ----- Review screen — form first, then PDF, then line items ----- */
+  .review-pdf-col { height: 320px; }
+  .review-actions {
+    padding: 10px 12px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .review-actions .text-sm { font-size: 11.5px; }
+
+  /* ----- Data view: convert the wide table into a card list ----- */
+  .data-view-v2 { gap: 8px; }
+  .dv-toolbar { flex-wrap: wrap; gap: 8px; padding: 8px 10px; }
+  .dv-search-wrap { flex: 1 1 100%; min-width: 0; }
+  .dv-toolbar > .btn { flex: 1; min-height: 32px; font-size: 12px; }
+
+  .dv-card { border-radius: 8px; }
+  .dv-scroll { overflow-x: hidden; }   /* no horiz scroll once we're cards */
+
+  /* The dv-table becomes a column of cards. We hide the table-y bits
+     (thead, the chevron cell, the frozen-column accents) and let each
+     <tr> render as a stacked card. */
+  .dv-table { min-width: 0; table-layout: auto; display: block; }
+  .dv-table colgroup,
+  .dv-table thead { display: none; }
+  .dv-table tbody { display: block; padding: 6px 8px 4px; }
+  .dv-table tbody tr.dv-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 2px 8px;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-elevated);
+    cursor: pointer;
+    box-shadow: none !important;
+    transition: background 120ms, border-color 120ms;
+  }
+  .dv-table tbody tr.dv-row:hover,
+  .dv-table tbody tr.dv-row.dv-expanded {
+    background: var(--bg-elevated);
+    border-color: var(--accent);
+  }
+  .dv-table tbody tr.dv-row td {
+    border: none !important;
+    padding: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    position: static !important;
+    left: auto !important;
+    font-size: 12px;
+    line-height: 1.4;
+    text-align: left;
+    /* Default: each cell occupies the whole card row, label::before
+       inline with the value. PO # and Total override this to share the
+       top row. */
+    grid-column: 1 / -1;
+  }
+  /* Chevron cell is now a corner badge in the top-right; we'll position
+     it via grid order trickery (just hide it — the row itself is tap-
+     to-expand and renders a flat panel beneath). */
+  .dv-table tbody tr.dv-row td.dv-col-expand-cell { display: none; }
+  /* PO # — top row, bold + mono */
+  .dv-table tbody tr.dv-row td.dv-c-po {
+    grid-column: 1 / 2;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--text);
+  }
+  /* Total — top right, bold */
+  .dv-table tbody tr.dv-row td.dv-col-num.dv-strong {
+    grid-column: 2 / 3;
+    grid-row: 1 / 2;
+    font-weight: 700;
+    font-size: 13px;
+    text-align: right;
+  }
+  /* The remaining cells flow as label-less stack: customer / supplier /
+     buyer / po date / payment / lines / status / updated. Use ::before
+     pseudo-labels so the rep can tell which field is which. */
+  .dv-table tbody tr.dv-row td:not(.dv-c-po):not(.dv-col-num):not(.dv-col-expand-cell)::before,
+  .dv-table tbody tr.dv-row td.dv-col-num:not(.dv-strong)::before {
+    content: attr(data-label);
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-subtle);
+    margin-right: 6px;
+  }
+  .dv-table tbody tr.dv-row td.dv-muted { font-size: 11px; color: var(--text-muted); }
+
+  /* Expanded panel — full-width inside the card list */
+  .dv-table tbody tr.dv-expand-row { display: block; margin: -6px 0 6px; }
+  .dv-table tbody tr.dv-expand-row td {
+    display: block;
+    background: var(--bg-subtle) !important;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px !important;
+  }
+
+  /* Expanded info panel cards stack instead of going 3-up / 4-up. */
+  .dv-panel-row.cols-3,
+  .dv-panel-row.cols-4 { grid-template-columns: 1fr; }
+  .dv-panel-row.notes-audit { grid-template-columns: 1fr; }
+  .dv-panel { gap: 8px; padding: 4px; }
+  .dv-section h4 { font-size: 10px; }
+  .dv-field { gap: 2px; padding: 1px 0; font-size: 11.5px; }
+  .dv-lbl   { font-size: 10px; }
+  .dv-val   { font-size: 11.5px; }
+
+  /* Inner line-items mini-table inside the expanded panel — keep it
+     scrollable horizontally because the columns (qty/unit/amount) are
+     still inherently numeric. */
+  .dv-li-table { min-width: 540px; font-size: 10.5px; }
+  .dv-section.dv-section-lines .dv-li-wrap { overflow-x: auto; }
+
+  .dv-footer { padding: 8px 10px; gap: 6px; flex-wrap: wrap; font-size: 11px; }
+  .dv-summary { gap: 6px; }
+  .dv-pagination { gap: 4px; }
+  .dv-pagination button { font-size: 11px; padding: 3px 8px; }
+
+  /* ----- Repository (Ledger) table — similar card-list treatment ----- */
+  .repository-table { min-width: 0; table-layout: auto; display: block; }
+  .repository-table thead { display: none; }
+  .repository-table tbody { display: block; }
+  .repository-table tbody tr {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 2px 8px;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-elevated);
+  }
+  .repository-table tbody tr td {
+    border: none !important;
+    padding: 0 !important;
+    font-size: 12px;
+  }
+  /* Hide checkbox + chevron cells on mobile (selection + expand still work
+     via the row's own onClick handler). */
+  .repository-table tbody tr td:nth-child(1),
+  .repository-table tbody tr td:nth-child(2) { display: none; }
+
+  /* ----- Team table → card list ----- */
+  .team-table { display: block; }
+  .team-table thead { display: none; }
+  .team-table tbody, .team-table tbody tr { display: block; }
+  .team-table tbody tr {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 8px;
+    padding: 10px 12px;
+    background: var(--bg-elevated);
+  }
+  .team-table tbody tr:last-child td { border-bottom: none; }
+  .team-table tbody td { display: block; padding: 2px 0; border: none; width: auto; white-space: normal; text-align: left; }
+  .team-table tbody td.col-actions { width: 100%; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-subtle); }
+  .team-table .col-actions .flex { flex-wrap: wrap; gap: 6px; justify-content: flex-start; }
+  .team-table .col-actions .btn { padding: 4px 10px; font-size: 11.5px; flex: 0 0 auto; min-height: 30px; }
+
+  /* ----- Editable line items table inside Edit form — keep the
+       horizontal scroll, but tighten cell heights and font ----- */
+  .line-items-table { font-size: 11.5px; }
+  .line-items-table th { padding: 8px 10px; font-size: 9.5px; }
+  .line-items-table td { padding: 3px 3px; }
+  .line-items-table input { height: 28px; font-size: 11.5px; padding: 0 6px; }
+  .line-items-table .li-desc-textarea { font-size: 11.5px; padding: 5px 6px; }
+  .line-items-add-row { padding: 8px 10px; font-size: 11.5px; }
+  .line-items-totals  { padding: 8px 12px; }
+
+  /* ----- Auth screen ----- */
+  .auth-card { width: calc(100vw - 24px); max-width: 360px; padding: 18px 18px; }
+  .auth-page { padding: 16px 12px; }
+  .auth-title { font-size: 18px; }
+
+  /* ----- Toast ----- */
+  .toast { left: 12px; right: 12px; bottom: 12px; max-width: none; font-size: 12px; }
+
+  /* ----- Buttons / tap targets ----- */
+  .btn         { padding: 0 12px; min-height: 34px; font-size: 12.5px; }
+  .btn.btn-sm  { padding: 0 10px; min-height: 30px; font-size: 11.5px; }
+  .btn.btn-lg  { min-height: 40px; font-size: 13.5px; }
+  .nav-item    { padding: 10px 16px; min-height: 42px; }
+
+  /* ----- Inputs ----- */
+  .input, .textarea {
+    font-size: 13px;     /* 13+ avoids iOS Safari auto-zoom on focus */
+    padding: 7px 10px;
+  }
+  .label { font-size: 11.5px; }
+}
+
+/* Slightly larger tablets — still narrow enough to want single-col
+   form grids but the sidebar can stay docked. */
+@media (min-width: 641px) and (max-width: 880px) {
+  .form-grid-3 { grid-template-columns: repeat(2, 1fr); }
+  .form-grid-3 .col-span-3 { grid-column: span 2; }
+}
+

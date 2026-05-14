@@ -277,17 +277,20 @@
           <td className="dv-frz dv-c-po dv-mono" title={record.po_number}>
             {record.po_number}
           </td>
-          <td title={record.customer}>{record.customer || '—'}</td>
-          <td title={record.supplier}>{record.supplier || '—'}</td>
-          <td title={record.po_date}>{fmtDate(record.po_date)}</td>
-          <td title={record.buyer}>{record.buyer || '—'}</td>
-          <td title={record.payment_terms}>{record.payment_terms || '—'}</td>
-          <td className="dv-col-num">{(record.line_items || []).length}</td>
+          {/* data-label drives the mobile card-list layout — the cell
+              header text is rendered as a ::before label only on phones.
+              On desktop the attributes are ignored. */}
+          <td title={record.customer}     data-label="Customer">{record.customer || '—'}</td>
+          <td title={record.supplier}     data-label="Supplier">{record.supplier || '—'}</td>
+          <td title={record.po_date}      data-label="PO date">{fmtDate(record.po_date)}</td>
+          <td title={record.buyer}        data-label="Buyer">{record.buyer || '—'}</td>
+          <td title={record.payment_terms} data-label="Payment">{record.payment_terms || '—'}</td>
+          <td className="dv-col-num"      data-label="Lines">{(record.line_items || []).length}</td>
           <td className="dv-col-num dv-strong">{formatCurrency(record.total, record.currency)}</td>
-          <td onClick={(e) => e.stopPropagation()}>
+          <td data-label="Status" onClick={(e) => e.stopPropagation()}>
             <StatusPill status={record.status || 'received'} />
           </td>
-          <td className="dv-muted" title={record.updated_at}>{relTime(record.updated_at || record.added_at)}</td>
+          <td className="dv-muted" title={record.updated_at} data-label="Updated">{relTime(record.updated_at || record.added_at)}</td>
         </tr>
         {expanded && (
           <tr className="dv-expand-row">
