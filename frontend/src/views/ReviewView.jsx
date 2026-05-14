@@ -104,7 +104,9 @@
       <div className="view" style={{ paddingBottom: 80 }}>
         <POHeader data={data} filename={pending.filename} />
 
-        {duplicate && !isEdit && <DuplicateBanner duplicate={duplicate} />}
+        {!isEdit && (duplicate || (pending.candidates && pending.candidates.length > 0)) && (
+          <DuplicateBanner duplicate={duplicate} candidates={pending.candidates} />
+        )}
         <ValidationBanner data={data} />
 
         <div className="review-layout">
@@ -354,13 +356,19 @@
     );
   }
 
-  function DuplicateBanner({ duplicate }) {
+  function DuplicateBanner({ duplicate, candidates }) {
     const { Icon, Badge } = _A();
+    // Prefer the new `candidates` array; fall back to legacy `duplicate`.
+    const list = (Array.isArray(candidates) && candidates.length > 0)
+      ? candidates
+      : (duplicate ? [duplicate] : []);
+    if (list.length === 0) return null;
+
+    const top = list[0];
+    const isExact = (top._match_score || 0) >= 0.95;
+
     return (
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
+      <div className="dedup-banner" style={{
         padding: '12px 16px',
         marginBottom: 14,
         background: 'var(--warning-light)',
@@ -368,17 +376,54 @@
         borderRadius: 'var(--r-lg)',
         fontSize: 13,
       }}>
-        <Icon name="alert-triangle" size={18} style={{ color: 'var(--warning)', flexShrink: 0 }} />
-        <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 600, color: 'var(--warning)' }}>
-            PO #{duplicate.po_number} already exists in your ledger
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Icon name="alert-triangle" size={18} style={{ color: 'var(--warning)', flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 600, color: 'var(--warning)' }}>
+              {isExact
+                ? `PO #${top.po_number} already exists`
+                : `${list.length} possibly-related PO${list.length === 1 ? '' : 's'} on the ledger`}
+            </div>
+            <div className="text-sm" style={{ color: 'var(--text-muted)', marginTop: 2 }}>
+              Click <strong>Update existing</strong> below to overwrite the top match, or <strong>Save as new</strong> to keep both.
+            </div>
           </div>
-          <div className="text-sm" style={{ color: 'var(--text-muted)', marginTop: 2 }}>
-            Added {formatDate(duplicate.added_at)} · {(duplicate.line_items || []).length} line {(duplicate.line_items || []).length === 1 ? 'item' : 'items'} · total {formatCurrency(duplicate.total, duplicate.currency)}
-            &nbsp;·&nbsp;Use <strong>Update existing</strong> to overwrite, or <strong>Save as new</strong> to keep both.
-          </div>
+          <Badge tone="warning" dot>{isExact ? 'Duplicate' : 'Similar'}</Badge>
         </div>
-        <Badge tone="warning" dot>Duplicate</Badge>
+
+        {list.length > 1 && (
+          <ul style={{ listStyle: 'none', padding: 0, margin: '10px 0 0' }}>
+            {list.map((c, i) => (
+              <li key={c.id} style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '6px 0',
+                borderTop: i === 0 ? '1px solid rgba(180, 83, 9, 0.18)' : '1px solid rgba(180, 83, 9, 0.10)',
+                fontSize: 12,
+              }}>
+                <span style={{
+                  fontFamily: 'JetBrains Mono',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  background: 'white',
+                  border: '1px solid rgba(180, 83, 9, 0.25)',
+                  borderRadius: 4,
+                  padding: '1px 5px',
+                  color: 'var(--warning)',
+                }}>{Math.round((c._match_score || 0) * 100)}%</span>
+                <span style={{ fontFamily: 'JetBrains Mono', fontWeight: 600 }}>{c.po_number || '—'}</span>
+                <span style={{ color: 'var(--text-muted)' }}>·</span>
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {c.customer || '—'} · {formatCurrency(c.total, c.currency)}
+                </span>
+                <span style={{ color: 'var(--text-subtle)', fontSize: 11 }}>
+                  {(c._match_reasons || []).slice(0, 1).join('') || formatDate(c.added_at)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     );
   }

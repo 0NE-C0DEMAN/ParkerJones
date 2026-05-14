@@ -174,12 +174,66 @@ def _strip_pw(rec: dict | None) -> dict | None:
 
 
 # -----------------------------------------------------------------------------
-# FastAPI dependency: inject the current user from the Authorization header
+# Personal API key helpers — used by current_user() to accept either a JWT
+# from the web app or a personal access token from a script / integration.
+# Keys look like `fdr_<24-url-safe-chars>`; the first 8 chars after the
+# prefix double as a lookup index in `api_keys.prefix`.
+# -----------------------------------------------------------------------------
+API_KEY_PREFIX = "fdr_"
+
+def generate_api_key() -> tuple[str, str, str]:
+    """Return (cleartext_key, display_prefix, bcrypt_hash). The cleartext
+    is shown to the user exactly once at creation time and never stored."""
+    raw = secrets.token_urlsafe(24)
+    cleartext = f"{API_KEY_PREFIX}{raw}"
+    # Index by the first 8 characters of `raw` so we can do a fast lookup
+    # without scanning every row in the table.
+    display_prefix = raw[:8]
+    key_hash = hash_password(cleartext)
+    return cleartext, display_prefix, key_hash
+
+
+def _verify_api_key(presented: str) -> dict | None:
+    """Resolve a presented API key to the owning user, or None if invalid /
+    revoked. Touches `last_used_at` on success."""
+    if not presented or not presented.startswith(API_KEY_PREFIX):
+        return None
+    raw = presented[len(API_KEY_PREFIX):]
+    if len(raw) < 8:
+        return None
+    prefix = raw[:8]
+    for row in db.find_api_key_by_prefix(prefix):
+        if verify_password(presented, row.get("key_hash") or ""):
+            user = db.get_user(row["user_id"])
+            if user and user.get("is_active"):
+                db.touch_api_key_used(row["id"])
+                return user
+    return None
+
+
+# -----------------------------------------------------------------------------
+# FastAPI dependency: inject the current user from the Authorization header.
+# Accepts either a session JWT (web app) OR a personal API key (scripts /
+# integrations). Both surface as the same CurrentUser model downstream.
 # -----------------------------------------------------------------------------
 def current_user(authorization: str | None = Header(default=None)) -> CurrentUser:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing or invalid Authorization header")
     token = authorization.split(" ", 1)[1]
+
+    # API-key path — token looks like `fdr_<base64url>`. Skip JWT parsing.
+    if token.startswith(API_KEY_PREFIX):
+        user = _verify_api_key(token)
+        if not user:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or revoked API key")
+        return CurrentUser(
+            id=user["id"],
+            email=user["email"],
+            full_name=user.get("full_name") or "",
+            role=user.get("role") or "rep",
+        )
+
+    # JWT path (the web app)
     try:
         payload = decode_access_token(token)
     except jwt.ExpiredSignatureError:

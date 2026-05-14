@@ -27,7 +27,33 @@ import excel_export
 import auth
 import frontend_html
 
-app = FastAPI(title="Foundry API", version="0.4.0")
+app = FastAPI(
+    title="Foundry API",
+    version="0.4.0",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
+    description=(
+        "REST API for Foundry — Parker Jones / Lekson Associates' PO capture "
+        "tool. Authenticate with either a session JWT (web app login) or a "
+        "personal API key created in Settings → API access. Pass the token "
+        "in the `Authorization: Bearer <token>` header.\n\n"
+        "**Quick start (curl):**\n```bash\n"
+        "TOKEN=fdr_xxxx\n"
+        "curl -H \"Authorization: Bearer $TOKEN\" \\\n"
+        "     https://samtwo-foundry.hf.space/api/pos\n```"
+    ),
+    openapi_tags=[
+        {"name": "auth",      "description": "Login, session, profile, password and email management."},
+        {"name": "pos",       "description": "Purchase orders — list, create, update, bulk operations, Excel export."},
+        {"name": "team",      "description": "Admin: list / invite / deactivate / delete team members."},
+        {"name": "directory", "description": "Aggregate views of customers and suppliers built from PO history."},
+        {"name": "filters",   "description": "Saved filters (smart folders) for the Ledger."},
+        {"name": "api-keys",  "description": "Personal access tokens for scripted access to Foundry."},
+        {"name": "admin",     "description": "App-wide configuration (admins only) — LLM key rotation, stats."},
+    ],
+    contact={"name": "Lekson Associates", "email": "parker@lekson.com"},
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -398,6 +424,172 @@ def distinct_values(field: str, user: auth.CurrentUser = Depends(auth.current_us
 def list_team(user: auth.CurrentUser = Depends(auth.require_admin)):
     """Admin only — list all registered users."""
     return {"users": db.list_users()}
+
+
+# ============================================================================
+# Directory — customer / supplier aggregate views
+# ============================================================================
+
+@app.get("/api/directory/{kind}")
+def list_directory(kind: str, user: auth.CurrentUser = Depends(auth.current_user)):
+    """Aggregate view of every customer (or supplier) on the ledger:
+       name, PO count, lifetime spend, first/last PO date.
+    kind ∈ {"customers", "suppliers"}."""
+    if kind == "customers":
+        return {"kind": kind, "items": db.list_customers()}
+    if kind == "suppliers":
+        return {"kind": kind, "items": db.list_suppliers()}
+    raise HTTPException(404, "Unknown directory kind.")
+
+
+@app.get("/api/directory/{kind}/{name}/pos", response_model=list[PORecordSaved])
+def directory_party_pos(kind: str, name: str, user: auth.CurrentUser = Depends(auth.current_user)):
+    """All POs for a specific customer or supplier."""
+    field = {"customers": "customer", "suppliers": "supplier"}.get(kind)
+    if not field:
+        raise HTTPException(404, "Unknown directory kind.")
+    return db.list_pos_by_party(field, name)
+
+
+# ============================================================================
+# Smart dedup — score the ledger against an incoming extraction.
+# Returns up to N similar POs ranked by a similarity score; the UI uses
+# this on the Review screen to surface possible duplicates and revisions.
+# ============================================================================
+
+class SimilarPOQuery(BaseModel):
+    po_number: str = ""
+    customer: str = ""
+    total: float = 0
+    po_date: str = ""
+    # Just the fields we use for the description-overlap signal — keep the
+    # payload small.
+    line_items: list[dict] = Field(default_factory=list)
+
+
+# ============================================================================
+# Saved filters / smart folders
+# ============================================================================
+
+class SavedFilterPayload(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    emoji: str = Field(default="", max_length=8)
+    payload: dict = Field(default_factory=dict)
+    scope: str = Field(default="user", pattern="^(user|team)$")
+
+
+@app.get("/api/saved-filters")
+def list_saved_filters(user: auth.CurrentUser = Depends(auth.current_user)):
+    return {"filters": db.list_saved_filters(user.id)}
+
+
+@app.post("/api/saved-filters", status_code=201)
+def create_saved_filter(
+    payload: SavedFilterPayload,
+    user: auth.CurrentUser = Depends(auth.current_user),
+):
+    # Reps can't create team-scope filters — that's an admin lever.
+    if payload.scope == "team" and user.role != "admin":
+        raise HTTPException(403, "Only admins can save filters for the team.")
+    return db.create_saved_filter(
+        name=payload.name.strip(),
+        emoji=(payload.emoji or "").strip(),
+        payload=payload.payload or {},
+        scope=payload.scope,
+        owner_id=user.id,
+    )
+
+
+@app.put("/api/saved-filters/{filter_id}")
+def update_saved_filter(
+    filter_id: str,
+    payload: SavedFilterPayload,
+    user: auth.CurrentUser = Depends(auth.current_user),
+):
+    if payload.scope == "team" and user.role != "admin":
+        raise HTTPException(403, "Only admins can scope a filter to the team.")
+    updated = db.update_saved_filter(
+        filter_id,
+        user_id=user.id,
+        is_admin=user.role == "admin",
+        name=payload.name.strip(),
+        emoji=(payload.emoji or "").strip(),
+        payload=payload.payload or {},
+        scope=payload.scope,
+    )
+    if not updated:
+        raise HTTPException(404, "Filter not found or you don't have access.")
+    return updated
+
+
+@app.delete("/api/saved-filters/{filter_id}")
+def delete_saved_filter(
+    filter_id: str,
+    user: auth.CurrentUser = Depends(auth.current_user),
+):
+    ok = db.delete_saved_filter(filter_id, user_id=user.id, is_admin=user.role == "admin")
+    if not ok:
+        raise HTTPException(404, "Filter not found or you don't have access.")
+    return {"ok": True}
+
+
+# ============================================================================
+# API keys — personal access tokens for programmatic API use
+# ============================================================================
+
+class APIKeyCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=80,
+                      description="Human-readable label (e.g. 'Zapier integration', 'Sales-ops script').")
+
+
+@app.get("/api/auth/api-keys", tags=["api-keys"])
+def list_my_api_keys(user: auth.CurrentUser = Depends(auth.current_user)):
+    """Return the current user's API keys. Cleartext is never returned —
+    only created_at, last_used_at, and the 8-char prefix for display."""
+    return {"keys": db.list_api_keys(user.id)}
+
+
+@app.post("/api/auth/api-keys", status_code=201, tags=["api-keys"])
+def create_my_api_key(
+    payload: APIKeyCreate,
+    user: auth.CurrentUser = Depends(auth.current_user),
+):
+    """Create a new personal API key. The cleartext is returned exactly
+    ONCE — the caller must save it. Foundry stores only the bcrypt hash."""
+    cleartext, prefix, key_hash = auth.generate_api_key()
+    saved = db.create_api_key(
+        user_id=user.id,
+        name=payload.name.strip(),
+        prefix=prefix,
+        key_hash=key_hash,
+    )
+    return {
+        "key": cleartext,            # shown once; never exposed again
+        "id":  saved.get("id"),
+        "name": saved.get("name"),
+        "prefix": saved.get("prefix"),
+        "created_at": saved.get("created_at"),
+    }
+
+
+@app.delete("/api/auth/api-keys/{key_id}", tags=["api-keys"])
+def revoke_my_api_key(key_id: str, user: auth.CurrentUser = Depends(auth.current_user)):
+    ok = db.revoke_api_key(key_id, user_id=user.id)
+    if not ok:
+        raise HTTPException(404, "Key not found.")
+    return {"ok": True}
+
+
+@app.post("/api/pos/find-similar")
+def find_similar_pos(payload: SimilarPOQuery, user: auth.CurrentUser = Depends(auth.current_user)):
+    candidates = db.find_similar_pos(
+        po_number=payload.po_number or "",
+        customer=payload.customer or "",
+        total=payload.total or 0.0,
+        po_date=payload.po_date or "",
+        line_items=payload.line_items or [],
+    )
+    return {"candidates": candidates}
 
 
 class TeamMemberToggle(BaseModel):

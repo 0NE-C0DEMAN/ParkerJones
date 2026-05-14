@@ -72,19 +72,6 @@
     return request(`/api/pos${suffix}`);
   }
 
-  async function getPO(id) {
-    return request(`/api/pos/${id}`);
-  }
-
-  async function findByPONumber(po_number) {
-    if (!po_number) return null;
-    try {
-      return await request(`/api/pos/by-number/${encodeURIComponent(po_number)}`);
-    } catch {
-      return null;
-    }
-  }
-
   async function createPO(data) {
     return request('/api/pos', { method: 'POST', body: JSON.stringify(data) });
   }
@@ -99,10 +86,6 @@
 
   async function clearAll() {
     return request('/api/pos', { method: 'DELETE' });
-  }
-
-  async function getStats() {
-    return request('/api/stats');
   }
 
   /**
@@ -190,6 +173,63 @@
 
   async function listTeam() {
     return request('/api/team');
+  }
+
+  // Directory — auto-built from PO history, no separate seed table.
+  async function listDirectory(kind /* 'customers' | 'suppliers' */) {
+    return request(`/api/directory/${encodeURIComponent(kind)}`);
+  }
+
+  async function listPartyPOs(kind, name) {
+    return request(`/api/directory/${encodeURIComponent(kind)}/${encodeURIComponent(name)}/pos`);
+  }
+
+  // Personal API keys — for scripts and integrations.
+  async function listMyApiKeys() {
+    return request('/api/auth/api-keys');
+  }
+  async function createMyApiKey({ name }) {
+    return request('/api/auth/api-keys', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+  }
+  async function revokeMyApiKey(id) {
+    return request(`/api/auth/api-keys/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
+  // Saved filters — per-user smart folders for the Ledger.
+  async function listSavedFilters() {
+    return request('/api/saved-filters');
+  }
+  async function createSavedFilter({ name, emoji, payload, scope }) {
+    return request('/api/saved-filters', {
+      method: 'POST',
+      body: JSON.stringify({ name, emoji: emoji || '', payload: payload || {}, scope: scope || 'user' }),
+    });
+  }
+  async function updateSavedFilter(id, { name, emoji, payload, scope }) {
+    return request(`/api/saved-filters/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name, emoji: emoji || '', payload: payload || {}, scope: scope || 'user' }),
+    });
+  }
+  async function deleteSavedFilter(id) {
+    return request(`/api/saved-filters/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
+  // Smart dedup — score the ledger for similarity to an incoming extraction.
+  async function findSimilarPOs({ po_number, customer, total, po_date, line_items }) {
+    return request('/api/pos/find-similar', {
+      method: 'POST',
+      body: JSON.stringify({
+        po_number: po_number || '',
+        customer:  customer  || '',
+        total:     total     || 0,
+        po_date:   po_date   || '',
+        line_items: (line_items || []).map((it) => ({ description: it.description })),
+      }),
+    });
   }
 
   async function setUserActive(user_id, is_active) {
@@ -295,13 +335,10 @@
     BASE,
     checkHealth,
     listPOs,
-    getPO,
-    findByPONumber,
     createPO,
     updatePO,
     deletePO,
     clearAll,
-    getStats,
     downloadLedgerXlsx,
     uploadSource,
     getSourceUrl,
@@ -310,6 +347,16 @@
     bulkStatus,
     getDistinct,
     listTeam,
+    listDirectory,
+    listPartyPOs,
+    findSimilarPOs,
+    listSavedFilters,
+    createSavedFilter,
+    updateSavedFilter,
+    deleteSavedFilter,
+    listMyApiKeys,
+    createMyApiKey,
+    revokeMyApiKey,
     setUserActive,
     adminCreateUser,
     adminResetPassword,

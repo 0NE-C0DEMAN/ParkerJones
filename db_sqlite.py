@@ -76,6 +76,10 @@ CREATE TABLE IF NOT EXISTS pos (
 CREATE INDEX IF NOT EXISTS idx_pos_po_number ON pos(po_number);
 CREATE INDEX IF NOT EXISTS idx_pos_added_at ON pos(added_at DESC);
 CREATE INDEX IF NOT EXISTS idx_pos_customer ON pos(customer);
+-- list_pos sorts by updated_at; Directory + Reports + Ledger all hit this
+CREATE INDEX IF NOT EXISTS idx_pos_updated_at ON pos(updated_at DESC);
+-- supplier rollups (Directory + Reports) sort/group on supplier
+CREATE INDEX IF NOT EXISTS idx_pos_supplier ON pos(supplier);
 
 CREATE TABLE IF NOT EXISTS line_items (
   id TEXT PRIMARY KEY,
@@ -103,6 +107,40 @@ CREATE TABLE IF NOT EXISTS app_config (
   updated_at    TEXT,
   updated_by_id TEXT
 );
+
+-- Saved filters (Ledger smart folders). Stored as JSON so the filter
+-- shape can evolve without schema changes. Two visibility modes:
+--   * scope='user'   → only owner_id sees the filter
+--   * scope='team'   → everyone on the workspace sees it (admin-created)
+CREATE TABLE IF NOT EXISTS saved_filters (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  emoji       TEXT,
+  payload     TEXT NOT NULL,     -- JSON: {query?, status?, period?, customer?, ...}
+  scope       TEXT NOT NULL DEFAULT 'user',  -- 'user' | 'team'
+  owner_id    TEXT NOT NULL,
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_saved_filters_owner ON saved_filters(owner_id);
+
+-- Personal API keys for programmatic access. Stored hashed (bcrypt) so a
+-- DB leak doesn't reveal usable credentials. `prefix` is the first 8
+-- chars of the cleartext key — displayed in the UI as "fdr_aBc12345…"
+-- so the owner can recognize which key is which without seeing the
+-- secret value.
+CREATE TABLE IF NOT EXISTS api_keys (
+  id           TEXT PRIMARY KEY,
+  user_id      TEXT NOT NULL,
+  name         TEXT NOT NULL,
+  prefix       TEXT NOT NULL,             -- first 8 chars of the key, for display
+  key_hash     TEXT NOT NULL,
+  created_at   TEXT NOT NULL,
+  last_used_at TEXT,
+  revoked_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
+CREATE INDEX IF NOT EXISTS idx_api_keys_prefix ON api_keys(prefix);
 """
 
 # Migrations — additive columns added in later versions. Each tuple is
@@ -646,6 +684,308 @@ def list_distinct(field: str) -> list[str]:
             f"SELECT DISTINCT {field} AS v FROM pos WHERE {field} IS NOT NULL AND {field} <> '' ORDER BY {field}"
         ).fetchall()
         return [r["v"] for r in rows]
+
+
+# =============================================================================
+# Directory — aggregate views of customers and suppliers, built from PO history.
+# Cheap on-the-fly queries; no separate tables to keep in sync.
+# =============================================================================
+
+def _party_summary(field: str) -> list[dict]:
+    """Group POs by `customer` or `supplier` and return one row per party
+    with count, lifetime spend, and date range. Skips blanks. Sorted by
+    total spend descending so the biggest accounts surface first."""
+    if field not in ("customer", "supplier"):
+        raise ValueError(f"Invalid party field: {field}")
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT {field} AS name,
+                   COUNT(*)               AS po_count,
+                   COALESCE(SUM(total),0) AS total_spend,
+                   MIN(po_date)           AS first_po_date,
+                   MAX(po_date)           AS last_po_date,
+                   MAX(updated_at)        AS last_activity
+            FROM pos
+            WHERE {field} IS NOT NULL AND {field} <> ''
+            GROUP BY {field}
+            ORDER BY total_spend DESC
+            """
+        ).fetchall()
+        return [
+            {
+                "name":          r["name"],
+                "po_count":      r["po_count"] or 0,
+                "total_spend":   float(r["total_spend"] or 0),
+                "first_po_date": r["first_po_date"] or "",
+                "last_po_date":  r["last_po_date"] or "",
+                "last_activity": r["last_activity"] or "",
+            }
+            for r in rows
+        ]
+
+
+def list_customers() -> list[dict]:
+    return _party_summary("customer")
+
+
+def list_suppliers() -> list[dict]:
+    return _party_summary("supplier")
+
+
+def list_pos_by_party(field: str, name: str) -> list[dict]:
+    """Return every PO where customer = name (or supplier = name).
+    Same shape as list_pos so the UI can render the same row component."""
+    if field not in ("customer", "supplier"):
+        raise ValueError(f"Invalid party field: {field}")
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM pos WHERE {field} = ? ORDER BY po_date DESC, updated_at DESC",
+            (name,),
+        ).fetchall()
+        return [_row_to_po(r, _list_lines(conn, r["id"])) for r in rows]
+
+
+# =============================================================================
+# Smart dedup — score every existing PO for similarity to a new extraction
+# and return the top candidates. Strict PO# matches always rank highest;
+# weaker signals (same customer + total + close date, line-item overlap)
+# surface revisions that don't share a PO number.
+# =============================================================================
+
+def find_similar_pos(
+    *,
+    po_number: str = "",
+    customer: str = "",
+    total: float = 0.0,
+    po_date: str = "",
+    line_items: list[dict] | None = None,
+    limit: int = 3,
+) -> list[dict]:
+    line_items = line_items or []
+    new_total = float(total or 0)
+    new_descs = [
+        (it.get("description") or "").strip().lower()
+        for it in line_items
+        if (it.get("description") or "").strip()
+    ]
+
+    with get_conn() as conn:
+        rows = conn.execute("SELECT * FROM pos ORDER BY updated_at DESC LIMIT 400").fetchall()
+        candidates = []
+        for r in rows:
+            score = 0.0
+            reasons = []
+            same_pn      = po_number and r["po_number"] == po_number
+            same_cust    = customer  and r["customer"]  == customer
+            close_total  = new_total > 0 and r["total"] and abs((r["total"] or 0) - new_total) <= max(1.0, new_total * 0.01)
+            close_date   = po_date and r["po_date"] and _date_within(po_date, r["po_date"], days=14)
+
+            if same_pn and same_cust:
+                score = 1.0
+                reasons.append("Same PO # and customer")
+            elif same_pn:
+                score = 0.95
+                reasons.append("Same PO #")
+            elif same_cust and close_total and close_date:
+                score = 0.75
+                reasons.append("Same customer · same total · within 14 days")
+            elif same_cust and close_total:
+                score = 0.65
+                reasons.append("Same customer · same total")
+
+            # Line-item overlap nudges the score up for the soft matches.
+            if new_descs and score > 0:
+                existing = [
+                    (li["description"] or "").strip().lower()
+                    for li in _list_lines(conn, r["id"])
+                    if (li["description"] or "").strip()
+                ]
+                if existing:
+                    overlap = len(set(new_descs) & set(existing)) / max(len(new_descs), len(existing))
+                    if overlap >= 0.6:
+                        score = min(1.0, score + 0.1)
+                        reasons.append(f"{int(overlap * 100)}% line-item overlap")
+
+            if score >= 0.6:
+                rec = _row_to_po(r, _list_lines(conn, r["id"]))
+                rec["_match_score"]   = round(score, 3)
+                rec["_match_reasons"] = reasons
+                candidates.append(rec)
+
+        candidates.sort(key=lambda c: c["_match_score"], reverse=True)
+        return candidates[:limit]
+
+
+# =============================================================================
+# Saved filters / smart folders
+# =============================================================================
+
+def list_saved_filters(user_id: str) -> list[dict]:
+    """Return every filter the user can see — their own + team-shared ones."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM saved_filters "
+            "WHERE owner_id = ? OR scope = 'team' "
+            "ORDER BY created_at",
+            (user_id,),
+        ).fetchall()
+        return [_row_to_filter(r, user_id) for r in rows]
+
+
+def _row_to_filter(row, current_user_id: str) -> dict:
+    import json as _json
+    d = dict(row)
+    try:
+        d["payload"] = _json.loads(d.get("payload") or "{}")
+    except (TypeError, ValueError):
+        d["payload"] = {}
+    d["mine"] = d.get("owner_id") == current_user_id
+    return d
+
+
+def create_saved_filter(
+    *,
+    name: str,
+    emoji: str,
+    payload: dict,
+    scope: str,
+    owner_id: str,
+) -> dict:
+    import json as _json
+    if scope not in ("user", "team"):
+        scope = "user"
+    fid = str(uuid.uuid4())
+    now = datetime.now().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO saved_filters (id, name, emoji, payload, scope, owner_id, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (fid, name, emoji or "", _json.dumps(payload or {}), scope, owner_id, now, now),
+        )
+        row = conn.execute("SELECT * FROM saved_filters WHERE id = ?", (fid,)).fetchone()
+        return _row_to_filter(row, owner_id) if row else {}
+
+
+def update_saved_filter(
+    filter_id: str,
+    *,
+    user_id: str,
+    is_admin: bool,
+    name: str | None = None,
+    emoji: str | None = None,
+    payload: dict | None = None,
+    scope: str | None = None,
+) -> dict | None:
+    """Owner can edit their own filter. Admin can edit any team-scope filter."""
+    import json as _json
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM saved_filters WHERE id = ?", (filter_id,)).fetchone()
+        if not row:
+            return None
+        # Permissions: owner OR (admin AND team-scope).
+        if row["owner_id"] != user_id and not (is_admin and row["scope"] == "team"):
+            return None
+        sets, params = [], []
+        if name is not None:    sets.append("name = ?");    params.append(name)
+        if emoji is not None:   sets.append("emoji = ?");   params.append(emoji)
+        if payload is not None: sets.append("payload = ?"); params.append(_json.dumps(payload))
+        if scope is not None and scope in ("user", "team"):
+            sets.append("scope = ?"); params.append(scope)
+        if not sets:
+            return _row_to_filter(row, user_id)
+        sets.append("updated_at = ?"); params.append(datetime.now().isoformat())
+        params.append(filter_id)
+        conn.execute(f"UPDATE saved_filters SET {', '.join(sets)} WHERE id = ?", params)
+        row = conn.execute("SELECT * FROM saved_filters WHERE id = ?", (filter_id,)).fetchone()
+        return _row_to_filter(row, user_id) if row else None
+
+
+def delete_saved_filter(filter_id: str, *, user_id: str, is_admin: bool) -> bool:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM saved_filters WHERE id = ?", (filter_id,)).fetchone()
+        if not row:
+            return False
+        if row["owner_id"] != user_id and not (is_admin and row["scope"] == "team"):
+            return False
+        conn.execute("DELETE FROM saved_filters WHERE id = ?", (filter_id,))
+        return True
+
+
+# =============================================================================
+# API keys — personal access tokens for programmatic API use.
+# =============================================================================
+
+def list_api_keys(user_id: str) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, user_id, name, prefix, created_at, last_used_at, revoked_at "
+            "FROM api_keys WHERE user_id = ? AND revoked_at IS NULL "
+            "ORDER BY created_at DESC",
+            (user_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def create_api_key(*, user_id: str, name: str, prefix: str, key_hash: str) -> dict:
+    kid = str(uuid.uuid4())
+    now = datetime.now().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO api_keys (id, user_id, name, prefix, key_hash, created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (kid, user_id, name, prefix, key_hash, now),
+        )
+        row = conn.execute(
+            "SELECT id, user_id, name, prefix, created_at, last_used_at, revoked_at "
+            "FROM api_keys WHERE id = ?",
+            (kid,),
+        ).fetchone()
+        return dict(row) if row else {}
+
+
+def revoke_api_key(key_id: str, *, user_id: str) -> bool:
+    now = datetime.now().isoformat()
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT user_id, revoked_at FROM api_keys WHERE id = ?",
+            (key_id,),
+        ).fetchone()
+        if not row or row["user_id"] != user_id or row["revoked_at"]:
+            return False
+        conn.execute("UPDATE api_keys SET revoked_at = ? WHERE id = ?", (now, key_id))
+        return True
+
+
+def find_api_key_by_prefix(prefix: str) -> list[dict]:
+    """Return every non-revoked key whose prefix matches. The caller still
+    needs to verify the full key against `key_hash` (multiple keys could
+    share a prefix in theory)."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM api_keys WHERE prefix = ? AND revoked_at IS NULL",
+            (prefix,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def touch_api_key_used(key_id: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE api_keys SET last_used_at = ? WHERE id = ?",
+            (datetime.now().isoformat(), key_id),
+        )
+
+
+def _date_within(a: str, b: str, days: int) -> bool:
+    """True iff two ISO-ish date strings are within `days` of each other.
+    Tolerates malformed values by returning False."""
+    try:
+        da = datetime.fromisoformat(a[:10])
+        db = datetime.fromisoformat(b[:10])
+        return abs((da - db).days) <= days
+    except (TypeError, ValueError):
+        return False
 
 
 def stats() -> dict:

@@ -182,6 +182,8 @@
           </Card>
         )}
 
+        <ApiKeyCard pushToast={pushToast} />
+
         {isAdmin && <AdminCard pushToast={pushToast} backendOnline={backendOnline} />}
 
        </div>
@@ -198,6 +200,189 @@
   // --------------------------------------------------------------------
   // Admin-only card: system status + LLM key rotation
   // --------------------------------------------------------------------
+  // --------------------------------------------------------------------
+  // API keys — personal access tokens for programmatic API use.
+  // --------------------------------------------------------------------
+  function ApiKeyCard({ pushToast }) {
+    const [keys, setKeys] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [newName, setNewName] = useState('');
+    const [creating, setCreating] = useState(false);
+    const [fresh, setFresh] = useState(null);   // shown ONCE after creation
+    const [busyId, setBusyId] = useState(null);
+
+    const refresh = async () => {
+      setLoading(true);
+      try {
+        const res = await window.App.backend.listMyApiKeys();
+        setKeys(res.keys || []);
+      } catch (err) {
+        pushToast?.({ type: 'error', message: err.message || 'Failed to load API keys.' });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    useEffect(() => { refresh(); }, []);
+
+    const create = async () => {
+      const name = newName.trim();
+      if (!name) return;
+      setCreating(true);
+      try {
+        const res = await window.App.backend.createMyApiKey({ name });
+        setFresh(res);
+        setNewName('');
+        await refresh();
+        pushToast?.({ type: 'success', message: `API key "${name}" created. Save it now — it won't be shown again.` });
+      } catch (err) {
+        pushToast?.({ type: 'error', message: err.message || 'Failed to create key.' });
+      } finally {
+        setCreating(false);
+      }
+    };
+
+    const revoke = async (k) => {
+      if (!window.confirm(`Revoke "${k.name}"? Any scripts using it will stop working.`)) return;
+      setBusyId(k.id);
+      try {
+        await window.App.backend.revokeMyApiKey(k.id);
+        await refresh();
+        pushToast?.({ type: 'success', message: `Key "${k.name}" revoked.` });
+      } catch (err) {
+        pushToast?.({ type: 'error', message: err.message || 'Revoke failed.' });
+      } finally {
+        setBusyId(null);
+      }
+    };
+
+    const copy = (text) => {
+      navigator.clipboard?.writeText(text);
+      pushToast?.({ type: 'success', message: 'Copied to clipboard.' });
+    };
+
+    return (
+      <Card noPadding className="mb-0">
+        <CardHeader
+          title="API access"
+          subtitle="Personal tokens for scripts and integrations. Auth header: Authorization: Bearer <key>."
+          icon={<Icon name="key" size={12} />}
+          actions={
+            <a
+              href="/api/docs"
+              target="_blank"
+              rel="noopener"
+              className="text-sm"
+              style={{ color: 'var(--accent)', fontSize: 11.5 }}
+            >
+              <Icon name="file-text" size={11} />&nbsp;API docs
+            </a>
+          }
+        />
+
+        <div className="settings-section">
+          <Field label="Create new key">
+            <div className="flex gap-2 items-center">
+              <div className="input-with-icon" style={{ flex: 1 }}>
+                <span className="input-icon"><Icon name="hash" size={13} /></span>
+                <Input
+                  value={newName}
+                  onChange={setNewName}
+                  placeholder="e.g. Zapier integration"
+                />
+              </div>
+              <Button variant="primary" size="sm" iconLeft="plus" onClick={create} loading={creating} disabled={!newName.trim()}>
+                Generate
+              </Button>
+            </div>
+          </Field>
+          {fresh && (
+            <div style={{
+              marginTop: 12,
+              padding: 12,
+              background: 'rgba(79, 70, 229, 0.06)',
+              border: '1px solid var(--accent)',
+              borderRadius: 8,
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--accent)', marginBottom: 6 }}>
+                ⚠ Save this — it won't be shown again
+              </div>
+              <div className="flex gap-2 items-center" style={{ flexWrap: 'wrap' }}>
+                <code style={{
+                  flex: 1, minWidth: 0,
+                  fontFamily: 'JetBrains Mono', fontSize: 12,
+                  padding: '8px 10px',
+                  background: 'white',
+                  border: '1px solid var(--border)',
+                  borderRadius: 6,
+                  wordBreak: 'break-all',
+                }}>{fresh.key}</code>
+                <Button variant="secondary" size="sm" iconLeft="check" onClick={() => copy(fresh.key)}>Copy</Button>
+                <Button variant="ghost" size="sm" iconOnly="x" onClick={() => setFresh(null)} title="Dismiss" />
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="settings-section" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+          <div className="settings-label" style={{ marginBottom: 8 }}>
+            Active keys ({keys.length})
+          </div>
+          {loading ? (
+            <div style={{ padding: 16, textAlign: 'center' }}><span className="spinner" /></div>
+          ) : keys.length === 0 ? (
+            <div className="text-sm text-muted" style={{ fontSize: 12 }}>
+              No keys yet. Create one above to call the Foundry API from scripts.
+            </div>
+          ) : (
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {keys.map((k) => (
+                <li key={k.id} style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '8px 10px',
+                  background: 'var(--bg-subtle)',
+                  borderRadius: 6,
+                  fontSize: 12,
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600 }}>{k.name}</div>
+                    <div className="text-sm text-muted" style={{ fontSize: 11 }}>
+                      <code style={{ fontFamily: 'JetBrains Mono' }}>fdr_{k.prefix}…</code>
+                      &nbsp;·&nbsp;Created {fmtRel(k.created_at)}
+                      {k.last_used_at && <>&nbsp;·&nbsp;Last used {fmtRel(k.last_used_at)}</>}
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => revoke(k)}
+                    loading={busyId === k.id}
+                    style={{ color: 'var(--danger)' }}
+                  >
+                    Revoke
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </Card>
+    );
+  }
+
+  function fmtRel(iso) {
+    if (!iso) return '—';
+    const t = new Date(iso).getTime();
+    if (Number.isNaN(t)) return '—';
+    const s = Math.floor((Date.now() - t) / 1000);
+    if (s < 60)    return 'just now';
+    if (s < 3600)  return Math.floor(s / 60) + 'm ago';
+    if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+    return Math.floor(s / 86400) + 'd ago';
+  }
+
   function AdminCard({ pushToast, backendOnline }) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);

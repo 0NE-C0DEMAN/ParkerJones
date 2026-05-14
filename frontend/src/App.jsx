@@ -15,7 +15,7 @@
     // Resolve at render time so any component can be defined later in script order
     const {
       Sidebar, TopBar, BottomNav, ToastContainer, Button, Icon,
-      AuthView, UploadView, ReviewView, RepositoryView, DataView, SettingsView, ProfileView, TeamView,
+      AuthView, UploadView, ReviewView, RepositoryView, DataView, SettingsView, ProfileView, TeamView, DirectoryView, ReportsView,
       CommandPalette, ErrorBoundary,
     } = window.App;
 
@@ -157,11 +157,30 @@
         // succeeded — we just want them to glance at the line items.
         const warnings = Array.isArray(data?._warnings) ? data._warnings : [];
         warnings.forEach((message) => push({ type: 'warning', message }));
+        // Smart dedup — surface every plausibly-similar PO instead of only
+        // an exact PO# match. Scored server-side; the Review banner picks
+        // up `candidates` (ranked, max 3) and lets the rep choose:
+        // "this is the same row" / "save as new".
+        let candidates = [];
         let duplicate = null;
-        if (data.po_number && backendOnline) {
-          duplicate = await window.App.backend.findByPONumber(data.po_number);
+        if (backendOnline) {
+          try {
+            const res = await window.App.backend.findSimilarPOs({
+              po_number:  data.po_number  || '',
+              customer:   data.customer   || '',
+              total:      Number(data.total) || 0,
+              po_date:    data.po_date    || '',
+              line_items: data.line_items || [],
+            });
+            candidates = res?.candidates || [];
+            // First candidate doubles as the legacy `duplicate` slot so
+            // existing code paths (save-as-revision) keep working.
+            if (candidates.length > 0) duplicate = candidates[0];
+          } catch (err) {
+            console.warn('Similarity check failed', err);
+          }
         }
-        setPending((curr) => curr ? { ...curr, status: 'review', data, duplicate } : curr);
+        setPending((curr) => curr ? { ...curr, status: 'review', data, duplicate, candidates } : curr);
       } catch (err) {
         console.error('Extraction failed', err);
         push({ type: 'error', message: err.message || 'Extraction failed.' });
@@ -429,6 +448,8 @@
       : view === 'review' ? (pending?.isEdit ? 'Edit PO' : 'Review extraction')
       : view === 'repository' ? 'Ledger'
       : view === 'data' ? 'Data'
+      : view === 'directory' ? 'Directory'
+      : view === 'reports' ? 'Reports'
       : view === 'profile' ? 'Profile'
       : view === 'team' ? 'Team'
       : 'Settings';
@@ -437,6 +458,8 @@
       review: pending?.filename || '',
       repository: `${repository.length} ${repository.length === 1 ? 'record' : 'records'} in database`,
       data: `Flat tabular view — ${repository.length} ${repository.length === 1 ? 'PO' : 'POs'}, copy-into-Excel friendly`,
+      directory: 'Customers and suppliers across your PO history',
+      reports: 'Volume, spend, cycle times, and aging across your ledger',
       profile: 'Your account & preferences',
       team: 'Manage members and invitations',
       settings: 'Workspace preferences',
@@ -525,6 +548,7 @@
                     onBulkDelete={handleBulkDelete}
                     onBulkStatus={handleBulkStatus}
                     currentUser={user}
+                    pushToast={push}
                   />
                 )}
                 {view === 'data' && (
@@ -534,6 +558,12 @@
                     onDownload={handleDownload}
                     currentUser={user}
                   />
+                )}
+                {view === 'directory' && (
+                  <DirectoryView pushToast={push} onOpenPo={handleEdit} />
+                )}
+                {view === 'reports' && (
+                  <ReportsView records={repository} />
                 )}
                 {view === 'profile' && (
                   <ProfileView user={user} onUserUpdated={handleUserUpdated} pushToast={push} />

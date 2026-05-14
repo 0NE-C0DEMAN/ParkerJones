@@ -3,7 +3,7 @@
    ========================================================================== */
 (() => {
   'use strict';
-  const { useState, useMemo, useCallback } = React;
+  const { useState, useMemo, useCallback, useEffect } = React;
   const { formatCurrency, cn } = window.App.utils;
   // Resolve at render time (some symbols are defined in scripts that load
   // after this one).
@@ -24,15 +24,98 @@
     { id: 'mine',         label: 'Created by me',  filter: (r, ctx) => r.created_by_email === ctx.userEmail },
   ];
 
-  function RepositoryView({ records, onDelete, onEdit, onView, onDownload, onStatusChange, onBulkDelete, onBulkStatus, currentUser }) {
-    const { Stat, StatGrid, RepositoryTable, SearchInput, Button, Segmented, PO_STATUSES } = _A();
+  function RepositoryView({ records, onDelete, onEdit, onView, onDownload, onStatusChange, onBulkDelete, onBulkStatus, currentUser, pushToast }) {
+    const { Stat, StatGrid, RepositoryTable, SearchInput, Button, Segmented, Icon, PO_STATUSES } = _A();
     const [query, setQuery] = useState('');
     const [period, setPeriod] = useState('all');
     const [statusFilter, setStatusFilter] = useState('all');
     const [savedFilter, setSavedFilter] = useState(null);
+    const [customFilter, setCustomFilter] = useState(null); // active custom filter id
+    const [customFilters, setCustomFilters] = useState([]); // server-stored
+    const [editingFilter, setEditingFilter] = useState(null); // null | { id?, name, emoji, scope }
     const [sortKey, setSortKey] = useState('updated_at');
     const [sortDir, setSortDir] = useState('desc');
     const [selectedIds, setSelectedIds] = useState(new Set());
+
+    const isAdmin = currentUser?.role === 'admin';
+
+    // Load saved filters once. Cheap — just hits the backend.
+    useEffect(() => {
+      (async () => {
+        try {
+          const res = await window.App.backend.listSavedFilters();
+          setCustomFilters(res.filters || []);
+        } catch (err) {
+          console.warn('Could not load saved filters:', err.message);
+        }
+      })();
+    }, []);
+
+    // Apply a saved custom filter to the local state (so the rep sees
+    // their chip + the actual filter inputs reflect what's filtered).
+    const applyCustomFilter = useCallback((cf) => {
+      if (customFilter === cf.id) {
+        setCustomFilter(null);
+        setQuery('');
+        setStatusFilter('all');
+        setPeriod('all');
+        setSavedFilter(null);
+        return;
+      }
+      const p = cf.payload || {};
+      setCustomFilter(cf.id);
+      setQuery(p.query || '');
+      setStatusFilter(p.status || 'all');
+      setPeriod(p.period || 'all');
+      setSavedFilter(p.savedFilter || null);
+    }, [customFilter]);
+
+    const hasActiveFilter = !!query.trim() || statusFilter !== 'all' || period !== 'all' || savedFilter;
+
+    const saveCurrentAsFilter = useCallback(() => {
+      setEditingFilter({
+        name: '',
+        emoji: '⭐',
+        scope: 'user',
+        // capture the live filter state at click time
+        payload: {
+          query: query.trim(),
+          status: statusFilter,
+          period,
+          savedFilter,
+        },
+      });
+    }, [query, statusFilter, period, savedFilter]);
+
+    const commitFilter = useCallback(async (draft) => {
+      try {
+        if (draft.id) {
+          const updated = await window.App.backend.updateSavedFilter(draft.id, draft);
+          setCustomFilters((cf) => cf.map((f) => f.id === updated.id ? updated : f));
+          pushToast?.({ type: 'success', message: `Filter “${updated.name}” updated.` });
+        } else {
+          const created = await window.App.backend.createSavedFilter(draft);
+          setCustomFilters((cf) => [...cf, created]);
+          setCustomFilter(created.id);
+          pushToast?.({ type: 'success', message: `Filter “${created.name}” saved.` });
+        }
+        setEditingFilter(null);
+      } catch (err) {
+        pushToast?.({ type: 'error', message: err.message || 'Save failed.' });
+      }
+    }, [pushToast]);
+
+    const deleteFilter = useCallback(async (cf) => {
+      if (!window.confirm(`Delete the “${cf.name}” filter?`)) return;
+      try {
+        await window.App.backend.deleteSavedFilter(cf.id);
+        setCustomFilters((all) => all.filter((f) => f.id !== cf.id));
+        if (customFilter === cf.id) setCustomFilter(null);
+        pushToast?.({ type: 'success', message: `Filter “${cf.name}” deleted.` });
+      } catch (err) {
+        pushToast?.({ type: 'error', message: err.message || 'Delete failed.' });
+      }
+    }, [customFilter, pushToast]);
 
     const filtered = useMemo(() => {
       let arr = [...records];
@@ -150,8 +233,8 @@
         <div className="saved-filters">
           <button
             type="button"
-            className={cn('saved-filter-chip', !savedFilter && 'active')}
-            onClick={() => setSavedFilter(null)}
+            className={cn('saved-filter-chip', !savedFilter && !customFilter && 'active')}
+            onClick={() => { setSavedFilter(null); setCustomFilter(null); }}
           >
             All <span className="saved-filter-count">{records.length}</span>
           </button>
@@ -162,12 +245,60 @@
                 key={f.id}
                 type="button"
                 className={cn('saved-filter-chip', savedFilter === f.id && 'active')}
-                onClick={() => setSavedFilter(savedFilter === f.id ? null : f.id)}
+                onClick={() => { setCustomFilter(null); setSavedFilter(savedFilter === f.id ? null : f.id); }}
               >
                 {f.label} <span className="saved-filter-count">{count}</span>
               </button>
             );
           })}
+          {/* Custom saved filters — user's own + admin-shared team ones. */}
+          {customFilters.map((cf) => {
+            const isActive = customFilter === cf.id;
+            return (
+              <span key={cf.id} className={cn('saved-filter-custom', isActive && 'active')}>
+                <button
+                  type="button"
+                  className="saved-filter-chip"
+                  onClick={() => applyCustomFilter(cf)}
+                  title={cf.scope === 'team' ? 'Team filter' : 'Your filter'}
+                >
+                  {cf.emoji ? <span style={{ marginRight: 4 }}>{cf.emoji}</span> : null}
+                  {cf.name}
+                  {cf.scope === 'team' && <span className="saved-filter-team">team</span>}
+                </button>
+                {(cf.mine || (isAdmin && cf.scope === 'team')) && (
+                  <span className="saved-filter-actions">
+                    <button
+                      type="button"
+                      className="saved-filter-action"
+                      title="Edit"
+                      onClick={(e) => { e.stopPropagation(); setEditingFilter({ ...cf }); }}
+                    >
+                      <Icon name="pencil" size={11} />
+                    </button>
+                    <button
+                      type="button"
+                      className="saved-filter-action saved-filter-action-danger"
+                      title="Delete"
+                      onClick={(e) => { e.stopPropagation(); deleteFilter(cf); }}
+                    >
+                      <Icon name="trash" size={11} />
+                    </button>
+                  </span>
+                )}
+              </span>
+            );
+          })}
+          {hasActiveFilter && !customFilter && (
+            <button
+              type="button"
+              className="saved-filter-chip saved-filter-save"
+              onClick={saveCurrentAsFilter}
+              title="Save the active query, status, and period as a reusable filter"
+            >
+              <Icon name="plus" size={10} /> Save filter
+            </button>
+          )}
         </div>
 
         <div className="filter-bar">
@@ -218,6 +349,93 @@
           sortDir={sortDir}
           onSort={handleSort}
         />
+
+        {editingFilter && (
+          <SaveFilterModal
+            draft={editingFilter}
+            isAdmin={isAdmin}
+            onCancel={() => setEditingFilter(null)}
+            onCommit={commitFilter}
+          />
+        )}
+      </div>
+    );
+  }
+
+  function SaveFilterModal({ draft, isAdmin, onCancel, onCommit }) {
+    const { Button, Icon } = _A();
+    const [name, setName] = useState(draft.name || '');
+    const [emoji, setEmoji] = useState(draft.emoji || '');
+    const [scope, setScope] = useState(draft.scope || 'user');
+    const valid = name.trim().length > 0;
+    return (
+      <div className="modal-backdrop" onClick={onCancel}>
+        <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-header">
+            <div className="modal-title">
+              {draft.id ? 'Edit saved filter' : 'Save current filter'}
+            </div>
+            <button type="button" className="modal-close" onClick={onCancel} aria-label="Close">
+              <Icon name="x" size={14} />
+            </button>
+          </div>
+          <div className="modal-body">
+            <label className="modal-field">
+              <span>Name</span>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="My open POs"
+                autoFocus
+              />
+            </label>
+            <label className="modal-field">
+              <span>Emoji (optional)</span>
+              <input
+                type="text"
+                value={emoji}
+                onChange={(e) => setEmoji(e.target.value.slice(0, 4))}
+                placeholder="⭐"
+                maxLength={4}
+                style={{ width: 80, fontSize: 18, textAlign: 'center' }}
+              />
+            </label>
+            {isAdmin && (
+              <label className="modal-field">
+                <span>Visibility</span>
+                <select value={scope} onChange={(e) => setScope(e.target.value)}>
+                  <option value="user">Just for me</option>
+                  <option value="team">Share with the team</option>
+                </select>
+              </label>
+            )}
+            <div className="modal-summary">
+              <div className="modal-summary-title">Filter captures:</div>
+              <div className="modal-summary-payload">
+                {Object.entries(draft.payload || {}).filter(([, v]) => v).map(([k, v]) => (
+                  <span key={k} className="modal-summary-chip">
+                    <strong>{k}:</strong>&nbsp;{String(v)}
+                  </span>
+                ))}
+                {Object.values(draft.payload || {}).every((v) => !v) && (
+                  <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>No filters active.</span>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+            <Button
+              variant="primary"
+              iconLeft="check"
+              disabled={!valid}
+              onClick={() => onCommit({ ...draft, name: name.trim(), emoji, scope })}
+            >
+              {draft.id ? 'Update' : 'Save filter'}
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }

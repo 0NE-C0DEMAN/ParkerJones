@@ -72,6 +72,18 @@
             onClick={() => onNavigate('data')}
             count={repositoryCount}
           />
+          <NavItem
+            icon="building"
+            label="Directory"
+            active={activeView === 'directory'}
+            onClick={() => onNavigate('directory')}
+          />
+          <NavItem
+            icon="dollar"
+            label="Reports"
+            active={activeView === 'reports'}
+            onClick={() => onNavigate('reports')}
+          />
 
           <div className="nav-section-title">Account</div>
           <NavItem

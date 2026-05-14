@@ -65,6 +65,8 @@ FILES_JSX = [
     "src/views/ReviewView.jsx",
     "src/views/RepositoryView.jsx",
     "src/views/DataView.jsx",
+    "src/views/DirectoryView.jsx",
+    "src/views/ReportsView.jsx",
     "src/views/SettingsView.jsx",
     "src/views/ProfileView.jsx",
     "src/views/TeamView.jsx",
@@ -99,7 +101,7 @@ def build_app_html(api_key: str = "") -> str:
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Foundry — PO Capture</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">

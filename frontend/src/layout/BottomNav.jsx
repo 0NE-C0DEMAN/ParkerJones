@@ -50,7 +50,7 @@
     const tabs = buildPrimaryTabs();
     // Profile tab maps to 'profile'; "More" highlights when active view is
     // one of the secondary destinations.
-    const moreActive = activeView === 'team' || activeView === 'settings';
+    const moreActive = activeView === 'directory' || activeView === 'reports' || activeView === 'team' || activeView === 'settings';
 
     const go = (key) => {
       setMoreOpen(false);
@@ -120,6 +120,22 @@
                 </div>
               </div>
               <div className="bottom-sheet-list">
+                <button
+                  type="button"
+                  className={'bottom-sheet-item' + (activeView === 'directory' ? ' is-active' : '')}
+                  onClick={() => go('directory')}
+                >
+                  <Icon name="building" size={16} />
+                  <span>Directory</span>
+                </button>
+                <button
+                  type="button"
+                  className={'bottom-sheet-item' + (activeView === 'reports' ? ' is-active' : '')}
+                  onClick={() => go('reports')}
+                >
+                  <Icon name="dollar" size={16} />
+                  <span>Reports</span>
+                </button>
                 {user?.role === 'admin' && (
                   <button
                     type="button"
