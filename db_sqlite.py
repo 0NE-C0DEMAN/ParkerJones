@@ -502,96 +502,13 @@ def _safe_int(v) -> int:
     return int(_safe_float(v))
 
 
-# ─── Field normalizers — applied at the DB write boundary so the DB stores
-# ONE canonical form regardless of who is writing (web app, REST API
-# script, future bulk-import flow). Mirrors the frontend mockApi.js
-# normalizers byte-for-byte so the two layers can't drift.
-# ────────────────────────────────────────────────────────────────────────
-
-_PHONE_LABEL_RE = re.compile(r"^\s*(phone|tel|fax|p|cell|mobile|mob)\s*[#:.]*\s*", re.IGNORECASE)
-_EMAIL_LABEL_RE = re.compile(r"^email\s*[:.]*\s*", re.IGNORECASE)
-
-
-def _norm_phone(raw) -> str:
-    """Format US 10-digit numbers as '(XXX) XXX-XXXX'. Non-US shapes
-    pass through with just the leading label removed."""
-    if not raw:
-        return ""
-    s = _PHONE_LABEL_RE.sub("", str(raw)).strip()
-    if not s:
-        return ""
-    digits = "".join(ch for ch in s if ch.isdigit())
-    if len(digits) == 11 and digits.startswith("1"):
-        digits = digits[1:]
-    if len(digits) == 10:
-        return f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
-    return s  # international / extension shapes: keep as-is
-
-
-def _norm_email(raw) -> str:
-    if not raw:
-        return ""
-    s = str(raw).strip().lower()
-    if not s:
-        return ""
-    return _EMAIL_LABEL_RE.sub("", s)
-
-
-def _norm_po_number(raw) -> str:
-    if not raw:
-        return ""
-    return re.sub(r"\s+", " ", str(raw).strip())
-
-
-def _norm_currency(raw) -> str:
-    if not raw:
-        return "USD"
-    s = str(raw).strip().upper()
-    return s if re.fullmatch(r"[A-Z]{3}", s) else "USD"
-
-
-def _norm_multiline(raw) -> str:
-    """Strip trailing whitespace per line, collapse 3+ blank lines, trim outer."""
-    if not raw:
-        return ""
-    lines = [ln.rstrip() for ln in str(raw).splitlines()]
-    out = "\n".join(lines)
-    out = re.sub(r"\n{3,}", "\n\n", out)
-    return out.strip()
-
-
-# Common UOMs that get truncated to a single character by pdfplumber's
-# layout-preserving text extraction in narrow columns.
-_UOM_TRUNCATIONS = {
-    "E": "EA", "B": "BX", "C": "CS", "L": "LB",
-    "K": "KG", "F": "FT", "R": "RL", "P": "PK", "M": "M",
-}
-
-def _norm_uom(raw) -> str:
-    u = str(raw or "").strip().upper()
-    if not u:
-        return "EA"
-    if len(u) == 1 and u in _UOM_TRUNCATIONS:
-        return _UOM_TRUNCATIONS[u]
-    return u
-
-
-def _norm_po_payload(data: dict) -> dict:
-    """Apply all field normalizers to an incoming PO dict.
-    Caller copies this onto the raw `data` before INSERT/UPDATE."""
-    return {
-        "po_number":              _norm_po_number(data.get("po_number")),
-        "buyer_email":            _norm_email(data.get("buyer_email")),
-        "buyer_phone":            _norm_phone(data.get("buyer_phone")),
-        "receiving_contact_phone": _norm_phone(data.get("receiving_contact_phone")),
-        "supplier_code":          str(data.get("supplier_code") or "").strip().replace(" ", ""),
-        "currency":               _norm_currency(data.get("currency")),
-        "customer_address":       _norm_multiline(data.get("customer_address")),
-        "supplier_address":       _norm_multiline(data.get("supplier_address")),
-        "bill_to":                _norm_multiline(data.get("bill_to")),
-        "ship_to":                _norm_multiline(data.get("ship_to")),
-        "notes":                  _norm_multiline(data.get("notes")),
-    }
+# Field-value canonicalization (phone / email / multi-line addresses /
+# supplier_code / currency / UOM) lives in the LLM SYSTEM_PROMPT now —
+# the model emits ready-to-store canonical values directly. We don't
+# post-process them here. _safe_float and _safe_int above stay because
+# they're TYPE COERCION (defending against parse errors when a number
+# arrives as a string like "1,500.00") — different concern from value
+# formatting.
 
 
 def _insert_line_items(conn: sqlite3.Connection, po_id: str, items: Iterable[dict]) -> None:
@@ -618,7 +535,7 @@ def _insert_line_items(conn: sqlite3.Connection, po_id: str, items: Iterable[dic
                 str(it.get("vendor_part") or ""),
                 str(it.get("description") or ""),
                 _safe_float(it.get("quantity")),
-                _norm_uom(it.get("uom")),
+                str(it.get("uom") or "EA"),
                 _safe_float(it.get("unit_price")),
                 _safe_float(it.get("amount")),
                 str(it.get("required_date") or ""),
@@ -631,9 +548,6 @@ def create_po(data: dict, *, created_by_id: str | None = None, created_by_email:
     po_id = str(uuid.uuid4())
     now = datetime.now().isoformat()
     line_items = data.get("line_items") or []
-    # Normalize at the write boundary so DB stores ONE canonical form
-    # regardless of who's writing (web app, REST API script, future imports).
-    n = _norm_po_payload(data)
 
     with get_conn() as conn:
         conn.execute(
@@ -653,31 +567,31 @@ def create_po(data: dict, *, created_by_id: str | None = None, created_by_email:
             """,
             (
                 po_id,
-                n["po_number"],
+                str(data.get("po_number") or ""),
                 str(data.get("po_date") or ""),
                 str(data.get("revision") or ""),
                 str(data.get("customer") or ""),
-                n["customer_address"],
+                str(data.get("customer_address") or ""),
                 str(data.get("supplier") or ""),
-                n["supplier_code"],
-                n["supplier_address"],
-                n["bill_to"],
-                n["ship_to"],
+                str(data.get("supplier_code") or ""),
+                str(data.get("supplier_address") or ""),
+                str(data.get("bill_to") or ""),
+                str(data.get("ship_to") or ""),
                 str(data.get("payment_terms") or ""),
                 str(data.get("freight_terms") or ""),
                 str(data.get("ship_via") or ""),
                 str(data.get("fob_terms") or ""),
                 str(data.get("buyer") or ""),
-                n["buyer_email"],
-                n["buyer_phone"],
+                str(data.get("buyer_email") or ""),
+                str(data.get("buyer_phone") or ""),
                 str(data.get("receiving_contact") or ""),
-                n["receiving_contact_phone"],
+                str(data.get("receiving_contact_phone") or ""),
                 str(data.get("quote_number") or ""),
                 str(data.get("contract_number") or ""),
-                n["currency"],
+                str(data.get("currency") or "USD"),
                 _safe_float(data.get("total")),
                 str(data.get("filename") or ""),
-                n["notes"],
+                str(data.get("notes") or ""),
                 str(data.get("status") or "received"),
                 str(data.get("extraction_method") or "text"),
                 created_by_id, created_by_email,
@@ -693,7 +607,6 @@ def create_po(data: dict, *, created_by_id: str | None = None, created_by_email:
 def update_po(po_id: str, data: dict, *, updated_by_id: str | None = None, updated_by_email: str | None = None) -> dict | None:
     now = datetime.now().isoformat()
     line_items = data.get("line_items") or []
-    n = _norm_po_payload(data)
 
     with get_conn() as conn:
         existing = conn.execute("SELECT 1 FROM pos WHERE id = ?", (po_id,)).fetchone()
@@ -715,31 +628,31 @@ def update_po(po_id: str, data: dict, *, updated_by_id: str | None = None, updat
             WHERE id=?
             """,
             (
-                n["po_number"],
+                str(data.get("po_number") or ""),
                 str(data.get("po_date") or ""),
                 str(data.get("revision") or ""),
                 str(data.get("customer") or ""),
-                n["customer_address"],
+                str(data.get("customer_address") or ""),
                 str(data.get("supplier") or ""),
-                n["supplier_code"],
-                n["supplier_address"],
-                n["bill_to"],
-                n["ship_to"],
+                str(data.get("supplier_code") or ""),
+                str(data.get("supplier_address") or ""),
+                str(data.get("bill_to") or ""),
+                str(data.get("ship_to") or ""),
                 str(data.get("payment_terms") or ""),
                 str(data.get("freight_terms") or ""),
                 str(data.get("ship_via") or ""),
                 str(data.get("fob_terms") or ""),
                 str(data.get("buyer") or ""),
-                n["buyer_email"],
-                n["buyer_phone"],
+                str(data.get("buyer_email") or ""),
+                str(data.get("buyer_phone") or ""),
                 str(data.get("receiving_contact") or ""),
-                n["receiving_contact_phone"],
+                str(data.get("receiving_contact_phone") or ""),
                 str(data.get("quote_number") or ""),
                 str(data.get("contract_number") or ""),
-                n["currency"],
+                str(data.get("currency") or "USD"),
                 _safe_float(data.get("total")),
                 str(data.get("filename") or ""),
-                n["notes"],
+                str(data.get("notes") or ""),
                 str(data.get("status") or "received"),
                 updated_by_id, updated_by_email,
                 now,

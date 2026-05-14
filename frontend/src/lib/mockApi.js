@@ -257,70 +257,20 @@
     return u;
   }
 
-  // ----- field normalizers — apply at the extraction → save boundary -----
+  // ----- field normalization is now in SYSTEM_PROMPT -----
   //
-  // Goals: clean the noisy values LLMs and PDFs emit so the DB stores
-  // ONE canonical form and the UI never has to render `Phone#: (919)
-  // 876-4603 ext. 0042 ` style raw fragments. Conservative: when the
-  // input doesn't fit the expected shape, pass it through cleaned but
-  // un-reformatted rather than risk producing garbage.
-
-  /** Strip label prefixes ("Phone#:", "Tel:", "Fax:"), pull digits, and
-   *  re-format US 10-digit numbers as "(XXX) XXX-XXXX". Foreign / extension
-   *  / non-US shapes pass through with just the leading label removed. */
-  function normPhone(raw) {
-    if (!raw) return '';
-    // Strip leading labels (Phone#:, Tel:, Fax:, p:, cell:, mobile:, mob:)
-    let s = String(raw).replace(/^\s*(phone|tel|fax|p|cell|mobile|mob)\s*[#:.]*\s*/i, '').trim();
-    if (!s) return '';
-    // Pull just digits; strip the leading US country code 1 if it's 11 digits.
-    const digits = s.replace(/\D/g, '');
-    const ten = (digits.length === 11 && digits.startsWith('1')) ? digits.slice(1) : digits;
-    if (ten.length === 10) {
-      return `(${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}`;
-    }
-    // Not a clean 10-digit US number — return the label-stripped form so we
-    // don't mangle international / extension-bearing values.
-    return s;
-  }
-
-  /** Lowercase + trim. Empty if not roughly email-shaped. */
-  function normEmail(raw) {
-    if (!raw) return '';
-    const s = String(raw).trim().toLowerCase();
-    if (!s) return '';
-    // Reject obvious non-emails — drop "Email:" prefixes; reject anything
-    // missing a dot in the domain.
-    const cleaned = s.replace(/^email\s*[:.]*\s*/i, '');
-    if (!/^\S+@\S+\.\S+$/.test(cleaned)) return cleaned; // pass through ugly inputs; UI renders as-is
-    return cleaned;
-  }
-
-  /** Trim, collapse internal whitespace runs. */
-  function normPONumber(raw) {
-    if (!raw) return '';
-    return String(raw).trim().replace(/\s+/g, ' ');
-  }
-
-  /** Uppercase 3-letter currency code; default USD when missing/unreadable. */
-  function normCurrency(raw) {
-    if (!raw) return 'USD';
-    const s = String(raw).trim().toUpperCase();
-    return /^[A-Z]{3}$/.test(s) ? s : 'USD';
-  }
-
-  /** Per-line trim + collapse blank-line clusters in multi-line addresses
-   *  (some templates pad addresses with extra newlines). Preserves the
-   *  meaningful line structure. */
-  function normMultiline(raw) {
-    if (!raw) return '';
-    return String(raw)
-      .split(/\r?\n/)
-      .map((line) => line.replace(/\s+$/, ''))    // strip trailing whitespace
-      .join('\n')
-      .replace(/\n{3,}/g, '\n\n')                 // collapse 3+ blank lines
-      .replace(/^\s+|\s+$/g, '');                 // trim outer
-  }
+  // The LLM is instructed to emit canonical formats directly (phone,
+  // email, currency, multi-line addresses, supplier_code, UOM). We
+  // intentionally do NOT post-process those values — the prompt is
+  // the single source of truth for formatting rules. Reasons:
+  //   - one rule set instead of two layers that can drift
+  //   - the model already understands phone/email/address shapes
+  //   - simpler code, easier to audit
+  // What we still do at the boundary (kept below):
+  //   - normUom: rescue pdfplumber's 1-char column-truncation
+  //     artifact ("E" -> "EA"); not an LLM job
+  //   - normDate: tolerant date parsing for back-compat / edit-form
+  //     inputs that arrive in MM/DD/YYYY shape
 
   function normalize(data) {
     const items = Array.isArray(data?.line_items) ? data.line_items : [];
@@ -376,32 +326,34 @@
     const reportedTotal = Number(data?.total);
     const total = Number.isFinite(reportedTotal) && reportedTotal > 0 ? reportedTotal : +computedTotal.toFixed(2);
 
+    // Trim-only on string fields — formatting rules now live in the prompt.
+    const s = (v) => String(v ?? '').trim();
     return {
-      po_number: normPONumber(data?.po_number),
+      po_number: s(data?.po_number),
       po_date: normDate(data?.po_date),
-      revision: String(data?.revision || '').trim(),
-      customer: String(data?.customer || '').trim(),
-      customer_address: normMultiline(data?.customer_address),
-      supplier: String(data?.supplier || '').trim(),
-      supplier_code: String(data?.supplier_code || '').trim().replace(/\s+/g, ''),
-      supplier_address: normMultiline(data?.supplier_address),
-      bill_to: normMultiline(data?.bill_to),
-      ship_to: normMultiline(data?.ship_to),
-      payment_terms: String(data?.payment_terms || '').trim(),
-      freight_terms: String(data?.freight_terms || '').trim(),
-      ship_via: String(data?.ship_via || '').trim(),
-      fob_terms: String(data?.fob_terms || '').trim(),
-      buyer: String(data?.buyer || '').trim(),
-      buyer_email: normEmail(data?.buyer_email),
-      buyer_phone: normPhone(data?.buyer_phone),
-      receiving_contact: String(data?.receiving_contact || '').trim(),
-      receiving_contact_phone: normPhone(data?.receiving_contact_phone),
-      quote_number: String(data?.quote_number || '').trim(),
-      contract_number: String(data?.contract_number || '').trim(),
-      currency: normCurrency(data?.currency),
+      revision: s(data?.revision),
+      customer: s(data?.customer),
+      customer_address: s(data?.customer_address),
+      supplier: s(data?.supplier),
+      supplier_code: s(data?.supplier_code),
+      supplier_address: s(data?.supplier_address),
+      bill_to: s(data?.bill_to),
+      ship_to: s(data?.ship_to),
+      payment_terms: s(data?.payment_terms),
+      freight_terms: s(data?.freight_terms),
+      ship_via: s(data?.ship_via),
+      fob_terms: s(data?.fob_terms),
+      buyer: s(data?.buyer),
+      buyer_email: s(data?.buyer_email),
+      buyer_phone: s(data?.buyer_phone),
+      receiving_contact: s(data?.receiving_contact),
+      receiving_contact_phone: s(data?.receiving_contact_phone),
+      quote_number: s(data?.quote_number),
+      contract_number: s(data?.contract_number),
+      currency: s(data?.currency) || 'USD',
       line_items: normalized_items,
       total,
-      notes: normMultiline(data?.notes),
+      notes: s(data?.notes),
       confidence: { high: [], medium: [], low: [] },
     };
   }

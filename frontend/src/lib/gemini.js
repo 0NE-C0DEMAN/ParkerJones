@@ -59,12 +59,68 @@ Extract structured data into ONE JSON object that strictly matches the schema. N
 
 ████████████████████████████████████████████████████████████
 
-FORMATTING
+FORMATTING — emit canonical, ready-to-store values. The app does no
+post-processing; what you emit is what gets saved.
+
 - Empty string "" for missing strings; 0 for missing numbers (see R1 above).
 - Dates: YYYY-MM-DD (convert from any format, including MM/DD/YYYY and DD/MM/YY).
 - Numbers: plain decimals — no currency symbols, no thousands commas, no $ or USD inline.
 - Multi-line addresses + notes: preserve line breaks as \\n (see R2 above).
-- Case: preserve exactly as printed (see R3 above).
+- Case: preserve exactly as printed for company names + part #s (see R3 above).
+
+CANONICAL FORMATS — apply these to the values BEFORE emitting JSON
+
+  phone_number (buyer_phone, receiving_contact_phone):
+    Strip any "Phone#:", "Phone:", "Tel:", "Fax:", "Cell:", "Mobile:" labels.
+    For US 10-digit numbers (or 11 digits with leading 1 country code),
+    format as "(XXX) XXX-XXXX" — keep just the formatted number.
+    For non-US / extension-bearing numbers, leave the cleaned digits as
+    a single string with a space before any extension (e.g.
+    "+44 20 7946 0958", "(919) 876-4603 ext 42").
+    Examples (input -> output):
+      "Phone#: 919-876-4603"        -> "(919) 876-4603"
+      "Tel: 1-919-876-4603"         -> "(919) 876-4603"
+      "919.876.4603"                -> "(919) 876-4603"
+      "(919) 876-4603 ext. 0042"    -> "(919) 876-4603 ext 42"
+      "" / not on doc                -> ""
+
+  email (buyer_email):
+    Lowercase the entire address. Strip any "Email:" label. Trim outer
+    whitespace.
+    Examples:
+      "Email: Parker.Jones@LEKSON.COM" -> "parker.jones@lekson.com"
+      "  AP@CEEUS.com  "               -> "ap@ceeus.com"
+
+  po_number:
+    Output exactly as printed but collapse runs of internal whitespace
+    to a single space; trim outer whitespace.
+    Examples:
+      "  248800 - 000  -  OP "      -> "248800 - 000 - OP"
+      "PO-12345"                    -> "PO-12345"
+
+  currency:
+    Always a 3-letter ISO code, uppercase. If the doc doesn't say,
+    use "USD".
+    Examples: "USD", "CAD", "EUR"
+
+  supplier_code:
+    Drop ALL internal whitespace (these are account / vendor numbers).
+    Examples:
+      "  AB 12  3 4  "              -> "AB1234"
+      "000098085004"                -> "000098085004"
+
+  multi-line fields (customer_address, supplier_address, ship_to,
+                     bill_to, top-level notes):
+    Use \\n between lines. Trim trailing whitespace from each line.
+    Collapse 3+ consecutive blank lines down to a single blank line.
+    Trim leading and trailing whitespace overall.
+
+  uom (line items):
+    Always uppercase 2-letter (or longer if the doc shows it): EA, BX,
+    CS, FT, KG, LB, M, PK, PR, RL. Default to "EA" if the doc shows no
+    unit. If a single-letter UOM appears next to a real quantity (e.g.
+    pdfplumber truncated "EA" to "E" in a narrow column), expand it:
+    E→EA, B→BX, C→CS, L→LB, K→KG, F→FT, R→RL, P→PK.
 
 THE FOUR PARTIES (read carefully — most extraction errors live here)
 A PO involves up to four roles. Map them to the right fields by reading the LABELED BLOCKS on the document.
