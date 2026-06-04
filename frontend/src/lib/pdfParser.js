@@ -1,14 +1,11 @@
 /* ==========================================================================
-   pdfParser.js — Browser-side pdf.js helpers.
-     - readFile()             text extraction fallback when the server's
-                              pdfplumber endpoint is unreachable
-     - renderPagesToImages()  rasterise pages to PNG for the hybrid /
-                              vision LLM paths in mockApi.js
+   pdfParser.js — Browser-side pdf.js helpers for the vision pipeline.
+     - renderPagesToImages()  rasterise the first N pages to PNG; these are
+                              the only input to the vision LLM (mockApi.js)
      - getPdfPageCount()      cheap page count without rendering
 
-   Plain-text inputs (.txt / .csv / .md) are read directly. The scanned-PDF
-   detection used to live here but moved into the deterministic
-   "any text from pdfplumber → text path" check in mockApi.js.
+   No text extraction lives here anymore — every PO is read from the rendered
+   page image by the vision model, so a parsed text layer is never needed.
    ========================================================================== */
 (() => {
   'use strict';
@@ -25,70 +22,6 @@
     }
     window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
     workerConfigured = true;
-  }
-
-  /**
-   * Extract text from a PDF File. Returns an object with:
-   *   { text: full concatenated text, pages: array of per-page strings }
-   */
-  async function extractPdfText(file, { onPage } = {}) {
-    ensureWorker();
-    const buf = await file.arrayBuffer();
-    const pdf = await window.pdfjsLib.getDocument({ data: buf, disableFontFace: true }).promise;
-    const pages = [];
-
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      const items = content.items || [];
-      // Reconstruct lines using y-position so text flow is sensible
-      const lines = groupItemsIntoLines(items);
-      pages.push(lines.join('\n'));
-      onPage?.(i, pdf.numPages);
-    }
-
-    return {
-      text: pages.map((p, i) => `--- Page ${i + 1} ---\n${p}`).join('\n\n'),
-      pages,
-      pageCount: pdf.numPages,
-    };
-  }
-
-  function groupItemsIntoLines(items) {
-    if (!items.length) return [];
-    // Cluster by transform[5] (y position), reading order
-    const buckets = [];
-    const TOLERANCE = 2.5;
-    for (const it of items) {
-      const y = (it.transform && it.transform[5]) || 0;
-      const bucket = buckets.find((b) => Math.abs(b.y - y) <= TOLERANCE);
-      if (bucket) {
-        bucket.items.push(it);
-      } else {
-        buckets.push({ y, items: [it] });
-      }
-    }
-    buckets.sort((a, b) => b.y - a.y); // top to bottom
-    return buckets.map((b) => {
-      b.items.sort((a, c) => (a.transform[4] || 0) - (c.transform[4] || 0));
-      return b.items.map((it) => it.str).join(' ').replace(/\s+/g, ' ').trim();
-    }).filter(Boolean);
-  }
-
-  async function extractPlainText(file) {
-    return await file.text();
-  }
-
-  async function readFile(file) {
-    const ext = (file.name.split('.').pop() || '').toLowerCase();
-    if (ext === 'pdf' || file.type === 'application/pdf') {
-      return await extractPdfText(file);
-    }
-    if (['txt', 'csv', 'md'].includes(ext)) {
-      const text = await extractPlainText(file);
-      return { text, pages: [text], pageCount: 1 };
-    }
-    throw new Error(`Format .${ext} isn't supported. Convert to PDF and re-upload.`);
   }
 
   /**
@@ -150,7 +83,6 @@
 
   window.App = window.App || {};
   window.App.pdfParser = {
-    readFile,
     renderPagesToImages,
     getPdfPageCount,
   };

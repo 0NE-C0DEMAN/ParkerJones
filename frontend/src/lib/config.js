@@ -24,15 +24,19 @@
   const DEFAULT_API_KEYS = [];
   const DEFAULT_API_KEY = '';
 
-  // Default model — Gemma 4 26B. Picked over Gemini 2.5 Flash after the
-  // hardened-prompt bake-off across all 5 reference POs:
-  //   * Numerics 5/5 perfect on both
-  //   * Gemma read past pdfplumber overlay corruption that tripped Flash
-  //     up on Apex/Ariba (Flash returned garbled customer names there)
+  // Default model — Gemma 4 26B. The extraction pipeline is vision-only:
+  // every PO is rendered to page images and read directly by the model, so
+  // the default has to be a strong vision model. Gemma 4 earns it:
+  //   * Reads scanned AND handwritten POs that have no text layer at all
+  //     (e.g. a photographed PO with handwritten Company / Ship-To) — these
+  //     were impossible under the old pdfplumber text path
+  //   * Numerics + layout on par with Gemini Flash on every reference PO
   //   * Free-tier rate limits ~3x Flash's (30 RPM / 14k RPD vs 10 / 250),
   //     enough that high-volume days don't 429
-  //   * Trade-off: ~2.5x slower per call (~20s vs ~8s), but reps wait on
-  //     the upload review anyway, so latency isn't the bottleneck
+  //   * Chain-of-thought is stripped client-side (gemini.js drops `thought`
+  //     parts) so Gemma returns clean JSON, no rambling
+  //   * Trade-off: ~2x slower per call (~15s vs ~8s), but reps wait on the
+  //     upload review anyway, so latency isn't the bottleneck
   // Flash remains selectable in Settings if a rep wants raw speed; Lite is
   // still the cheapest paid-quota option.
   const DEFAULT_MODEL = 'gemma-4-26b-a4b-it';
@@ -43,9 +47,9 @@
   // Models the user can choose from in Settings. Each one declares its
   // provider so the extractor knows which client to call.
   const AVAILABLE_MODELS = [
-    // Gemma 4 — current default. Higher free-tier headroom + better at
-    // reading past pdfplumber overlay corruption than Flash. ~2.5x
-    // slower per call but accuracy is even or better on every sample.
+    // Gemma 4 — current default. Strong vision model that reads scanned +
+    // handwritten POs, higher free-tier headroom than Flash. ~2x slower per
+    // call but accuracy is even or better on every sample.
     { id: 'gemma-4-26b-a4b-it',            label: 'Gemma 4 26B',           tag: 'Recommended · highest free-tier rate limits', provider: 'google' },
     { id: 'gemini-2.5-flash',              label: 'Gemini 2.5 Flash',      tag: 'Faster · tighter free-tier limits',  provider: 'google' },
     { id: 'gemini-2.5-flash-lite',         label: 'Gemini 2.5 Flash Lite', tag: 'Cheapest · less accurate',     provider: 'google' },

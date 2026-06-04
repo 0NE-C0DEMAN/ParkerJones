@@ -52,6 +52,7 @@
 
     const [view, setView] = useState('upload');
     const [pending, setPending] = useState(null);
+    const [reviewDirty, setReviewDirty] = useState(false);  // form has unsaved user edits
     const [repository, setRepository] = useState([]);
     const [loading, setLoading] = useState(false);
     const [backendOnline, setBackendOnline] = useState(true);
@@ -298,6 +299,7 @@
 
     const handleDiscard = useCallback(() => {
       setPending(null);
+      setReviewDirty(false);
       // If queued, advance to next; else go back to upload
       if (queue.length > 0 && queueIndex < queue.length - 1) {
         setView('upload');
@@ -387,11 +389,16 @@
 
     const handleNavigate = useCallback((next) => {
       if (pending && pending.status === 'review' && next !== 'review') {
-        if (!window.confirm('Discard the current changes?')) return;
+        // Only warn when there's something to lose: an edit with REAL unsaved
+        // changes, or a freshly-extracted PO that was never saved. Opening Edit
+        // and switching tabs without touching anything must NOT prompt.
+        const needsConfirm = pending.isEdit ? reviewDirty : true;
+        if (needsConfirm && !window.confirm('Discard the current changes?')) return;
         setPending(null);
+        setReviewDirty(false);
       }
       setView(next);
-    }, [pending]);
+    }, [pending, reviewDirty]);
 
     // Auto-close the mobile drawer on navigation — tapping a nav item
     // should land you on the new view, not leave you staring at the
@@ -536,7 +543,7 @@
                   />
                 )}
                 {view === 'review' && (
-                  <ReviewView pending={pending} onConfirm={handleConfirm} onSaveAsNew={handleSaveAsNew} onDiscard={handleDiscard} />
+                  <ReviewView pending={pending} onConfirm={handleConfirm} onSaveAsNew={handleSaveAsNew} onDiscard={handleDiscard} onDirtyChange={setReviewDirty} />
                 )}
                 {view === 'repository' && (
                   <RepositoryView

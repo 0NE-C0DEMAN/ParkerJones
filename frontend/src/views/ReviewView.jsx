@@ -17,7 +17,7 @@
   // at render time, regardless of script load order.
   const _A = () => window.App;
 
-  function ReviewView({ pending, onConfirm, onSaveAsNew, onDiscard }) {
+  function ReviewView({ pending, onConfirm, onSaveAsNew, onDiscard, onDirtyChange }) {
     const { ProcessingState } = _A();
     if (!pending) return null;
 
@@ -35,11 +35,12 @@
         onConfirm={onConfirm}
         onSaveAsNew={onSaveAsNew}
         onDiscard={onDiscard}
+        onDirtyChange={onDirtyChange}
       />
     );
   }
 
-  function ReviewForm({ pending, onConfirm, onSaveAsNew, onDiscard }) {
+  function ReviewForm({ pending, onConfirm, onSaveAsNew, onDiscard, onDirtyChange }) {
     const { POHeader, AddressBlock, LineItemsTable, PdfPreview, Icon, Button, Field, Input, Textarea, Card, StatusChooser, Autocomplete } = _A();
 
     // Normalize incoming data so the form NEVER starts with null/undefined
@@ -73,6 +74,10 @@
     };
 
     const [data, setData] = useState(() => normalizeForEdit(pending.data));
+    const [touched, setTouched] = useState(false);          // a user edit happened
+    const [reextracting, setReextracting] = useState(false);
+    const [reextractStage, setReextractStage] = useState('');
+    const [reextractError, setReextractError] = useState('');
     const isEdit = !!pending.isEdit;
     const duplicate = pending.duplicate;
 
@@ -83,10 +88,21 @@
     const formKey = pending?.id || pending?.file?.name || pending?.filename || '';
     useEffect(() => {
       setData(normalizeForEdit(pending.data));
+      setTouched(false);
+      setReextractError('');
        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [formKey]);
 
-    // Keep PO total in sync with line item amounts
+    // Report dirty state up so the nav guard only prompts on REAL unsaved edits.
+    // Opening Edit and switching tabs without changing anything must not prompt.
+    // The auto-total-sync effect below calls setData directly and does NOT flip
+    // `touched`, so it never counts as a user edit.
+    useEffect(() => {
+      onDirtyChange?.(touched);
+       // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [touched]);
+
+    // Keep PO total in sync with line item amounts (NOT a user edit)
     useEffect(() => {
       const newTotal = lineItemsTotal(data.line_items);
       if (Math.abs(newTotal - (Number(data.total) || 0)) > 0.001) {
@@ -95,8 +111,41 @@
        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [data.line_items]);
 
-    const updateField = (field, value) => setData((prev) => ({ ...prev, [field]: value }));
-    const updateLineItems = (line_items) => setData((prev) => ({ ...prev, line_items }));
+    // Every mutation a rep makes goes through editData → marks the form dirty.
+    const editData = (updater) => { setTouched(true); setData(updater); };
+    const updateField = (field, value) => editData((prev) => ({ ...prev, [field]: value }));
+    const updateLineItems = (line_items) => editData((prev) => ({ ...prev, line_items }));
+
+    // Re-run extraction on the source PDF (a fresh upload's File, or the stored
+    // source for an already-saved PO) and replace the form with the new result.
+    // The rep still reviews and saves — re-extraction never writes on its own.
+    const handleReextract = async () => {
+      if (reextracting) return;
+      setReextractError('');
+      setReextracting(true);
+      try {
+        setReextractStage('Loading PDF');
+        let file = pending.file;
+        if (!file && pending.sourceUrl) {
+          const res = await fetch(pending.sourceUrl);
+          if (!res.ok) throw new Error(`Couldn't load the source PDF (HTTP ${res.status}).`);
+          const blob = await res.blob();
+          file = new File([blob], pending.filename || 'source.pdf', { type: blob.type || 'application/pdf' });
+        }
+        if (!file) throw new Error('No source file available to re-extract.');
+        const fresh = await window.App.api.extractPO(file, {
+          onStage: (stage, label) => setReextractStage(label || stage),
+        });
+        setData((prev) => normalizeForEdit({ ...fresh, status: prev.status }));
+        setTouched(true);   // a re-extraction is an unsaved change to confirm
+      } catch (err) {
+        console.error('Re-extract failed', err);
+        setReextractError(err.message || 'Re-extraction failed.');
+      } finally {
+        setReextracting(false);
+        setReextractStage('');
+      }
+    };
 
     const isValid = (data.po_number || '').trim() && (data.customer || '').trim();
 
@@ -195,7 +244,7 @@
           <div className="section-heading-icon"><Icon name="users" size={11} /></div>
           Parties &amp; addresses
         </div>
-        <AddressBlock data={data} onChange={setData} />
+        <AddressBlock data={data} onChange={(next) => { setTouched(true); setData(next); }} />
           </div>
 
           <div className="review-pdf-col">
@@ -243,11 +292,27 @@
 
         <div className="review-actions">
           <div className="flex items-center gap-3">
-            <Button variant="danger" iconLeft="x" onClick={onDiscard}>
+            <Button variant="danger" iconLeft="x" onClick={onDiscard} disabled={reextracting}>
               {isEdit ? 'Cancel' : 'Discard'}
             </Button>
+            {(pending.file || pending.sourceUrl) && (
+              <Button
+                variant="secondary"
+                iconLeft="rotate-cw"
+                onClick={handleReextract}
+                disabled={reextracting}
+                title="Re-run extraction on the source PDF and replace the fields below"
+              >
+                {reextracting ? (reextractStage || 'Re-extracting…') : 'Re-extract'}
+              </Button>
+            )}
             <span className="text-sm text-muted">
-              {!isValid && (
+              {reextractError ? (
+                <span style={{ color: 'var(--danger)' }}>
+                  <Icon name="alert-circle" size={12} style={{ verticalAlign: 'text-bottom' }} />
+                  &nbsp;{reextractError}
+                </span>
+              ) : !isValid && (
                 <>
                   <Icon name="alert-circle" size={12} style={{ verticalAlign: 'text-bottom' }} />
                   &nbsp;Add PO number and customer to continue

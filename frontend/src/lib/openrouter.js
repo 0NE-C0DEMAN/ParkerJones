@@ -110,8 +110,8 @@ CANONICAL FORMATS — apply these to the values BEFORE emitting JSON
   uom (line items):
     Always uppercase 2-letter (or longer if the doc shows it): EA, BX,
     CS, FT, KG, LB, M, PK, PR, RL. Default to "EA" if the doc shows no
-    unit. If a single-letter UOM appears next to a real quantity (e.g.
-    pdfplumber truncated "EA" to "E" in a narrow column), expand it:
+    unit. If a single-letter UOM appears next to a real quantity (e.g. a
+    narrow column clipped "EA" to "E"), expand it:
     E→EA, B→BX, C→CS, L→LB, K→KG, F→FT, R→RL, P→PK.
 
 THE FOUR PARTIES (read carefully — most extraction errors live here)
@@ -299,22 +299,50 @@ CURRENCY + TOTALS
 - "currency": default "USD" if not explicitly stated. If "CAD"/"EUR"/etc. appears, use that.
 - "total": grand total of the PO. Look for "TOTAL ORDER", "Total", "Grand Total", "Purchase Total", "Total PO Cost". If only line subtotals are shown, sum them.
 
-INPUT FORMAT
-The document text you receive comes from a layout-preserving PDF parser, and at the bottom of each page you may see a section like:
-  === STRUCTURED TABLES (use these for line items if visible) ===
-  [TABLE 1]
-  | Line | Part #  | Description | Qty | Unit Price | Total |
-  | 1    | X-1234  | Widget A    | 5   | 10.00      | 50.00 |
-  ...
-When a [TABLE N] block is present, treat IT as the authoritative source for line items — it's the parser's structured view of the same table that may have been flattened into prose above. Header blocks (VENDOR / SHIP TO / BILL TO / BUYER) should still be read from the layout-preserved body text, not from tables.
+INPUT FORMAT — YOU ARE READING PAGE IMAGES
+You receive one or more rendered page images of a purchase order. There is NO
+parsed text layer — read everything directly from the pixels, including:
+  - printed text, stamps, and tables
+  - HANDWRITING — on scanned POs the Company, Ship-To, quantities or prices are
+    often hand-written into blank fields. Read handwriting as carefully as print.
+Read each page top-to-bottom, left-to-right, and use the visual layout —
+columns, boxes, ruled lines, alignment — to decide which value owns which field.
 
-COLUMN LAYOUT HINT (text mode)
-The body text is whitespace-aligned to the original column layout. Related blocks may appear on the SAME LINE with significant whitespace between them — e.g.
-  "VENDOR:  COOPER LIGHTING               SHIP TO:  TARHEEL ELECTRIC"
-Treat the whitespace as a column boundary; the left column is the supplier block and the right column is the ship-to block. Do not concatenate their addresses. If the columns drift onto different vertical positions further down (one column has more lines than the other), stay aligned with the original column boundary, not with the visual row.
+YOU MAY BE GIVEN A SINGLE PAGE of a multi-page PO (pages are read independently
+and merged later). Therefore:
+  - Extract every field and EVERY line item visible ON THIS PAGE.
+  - If a header block (logo / VENDOR / SHIP TO / BILL TO / BUYER) is NOT on this
+    page, leave those fields "" — never guess or carry them over from memory.
+  - If this page has NO line-items table — it is Terms & Conditions, invoicing
+    boilerplate, a routing/legal page, a signature page, or blank — return
+    "line_items": []. NEVER manufacture line items out of T&C paragraphs,
+    addresses, or prose. A line item exists only if there is a real order row
+    with a quantity and/or a price.
+
+READING VISUAL COLUMNS (critical for two-column Ariba / Apex / Duke layouts)
+Supplier info and ship-to info often sit SIDE BY SIDE in two columns that run for
+many lines. Read STRICTLY by column: follow the LEFT column straight down to its
+end for the supplier block, then read the RIGHT column for the ship-to block.
+Never let one column's address bleed into the other's field, even when the two
+columns have a different number of lines. The vertical boundary between columns
+always wins over any apparent same-row pairing.
+
+ANTI-HALLUCINATION — never invent, never miss
+  - Extract ONLY what is actually printed or written on the page. Do NOT fill a
+    field with a plausible, typical, or inferred value.
+  - Absent value → "" for text, 0 for a number. A guess is worse than empty: the
+    human reviewer can fill a blank but cannot catch a confident wrong value.
+  - Capture ALL line items, not just the first few. Scan the entire order table
+    to its last row. Missing a line item is a serious error.
+  - One printed order row = exactly ONE line item. Never split or duplicate a row.
+  - If a digit is genuinely ambiguous, choose the reading that makes
+    quantity × unit_price = amount — do not add or drop digits to force a match.
 
 PRE-FLIGHT CHECKLIST — silently validate BEFORE emitting JSON
   □  Every missing field is "" — no "N/A", "TBD", "None", "Unknown".
+  □  EVERY line item on this page is captured — counted the rows, none skipped.
+  □  NO line items were invented from T&Cs / boilerplate / addresses (if this
+     page has no real order table, line_items is []).
   □  customer_address / supplier_address / bill_to / ship_to preserve every
      line of the printed block, joined with \\n. None truncated to the
      first line.
@@ -322,7 +350,10 @@ PRE-FLIGHT CHECKLIST — silently validate BEFORE emitting JSON
      "on behalf of" name buried in the body.
   □  supplier is ONE company name — not two concatenated.
   □  buyer is a person's name, not a company.
-  □  Every line item's quantity × unit_price ≈ amount (within $0.50).
+  □  Every line item's quantity × unit_price ≈ amount (within $0.50), and none
+     of qty / unit_price / amount is 0 when the row clearly shows a value.
+  □  All dates are YYYY-MM-DD. All numbers are plain decimals — no "$", no
+     thousands commas, no currency words.
   □  Original case preserved for all names (no auto-title-casing).
   □  No fields added that aren't in the schema below.
   □  No commentary, no "Here is the extracted data:", no fenced code
@@ -369,83 +400,6 @@ OUTPUT SCHEMA
   "total": 0,
   "notes": "string (multi-line ok)"
 }`;
-
-  async function extractWithLLM(documentText, { apiKey, apiKeys, model, signal, maxTokens = 8192 } = {}) {
-    if (!documentText || documentText.length < 20) {
-      throw new Error('No text could be read from this document. Scanned PDFs auto-route to the vision model — try re-uploading.');
-    }
-    const keys = (Array.isArray(apiKeys) && apiKeys.length) ? apiKeys : (apiKey ? [apiKey] : []);
-    if (!keys.length) throw new Error('No API key configured. Set one in Settings.');
-    return _withFallback(keys, (k) => _doTextExtract(documentText, { apiKey: k, model, signal, maxTokens }));
-  }
-
-  async function _doTextExtract(documentText, { apiKey, model, signal, maxTokens }) {
-
-    // Cap input to avoid runaway costs on giant boilerplate docs (e.g. 30-page Apex T&Cs)
-    const MAX_CHARS = 60000; // ~15k tokens
-    const trimmed = documentText.length > MAX_CHARS ? documentText.slice(0, MAX_CHARS) + '\n\n[document truncated for length]' : documentText;
-
-    const body = {
-      model: model || 'anthropic/claude-sonnet-4.5',
-      temperature: 0,
-      max_tokens: maxTokens,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: `Extract the purchase order data from the following document:\n\n${trimmed}` },
-      ],
-    };
-
-    const res = await fetch(ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': window.location.origin,
-        'X-Title': 'Foundry PO Capture',
-      },
-      body: JSON.stringify(body),
-      signal,
-    });
-
-    if (!res.ok) {
-      let errMsg = `OpenRouter API ${res.status}`;
-      try {
-        const errBody = await res.json();
-        errMsg = errBody?.error?.message || errMsg;
-      } catch {
-        try { errMsg = await res.text() || errMsg; } catch { /* ignore */ }
-      }
-      throw new Error(errMsg);
-    }
-
-    const json = await res.json();
-    const choice = json?.choices?.[0];
-    const content = choice?.message?.content;
-    const finishReason = choice?.finish_reason;
-    const usage = json?.usage;
-
-    if (!content) throw new Error('Empty response from LLM.');
-
-    // Detect truncation (the most common cause of "invalid JSON")
-    if (finishReason === 'length') {
-      console.warn('LLM response truncated. Raw content:', content);
-      throw new Error(
-        `Response was cut off at ${usage?.completion_tokens || '?'} tokens — this PO has more line items than fit in the current max_tokens limit. ` +
-        `Either switch to Haiku 4.5 in Settings (3× cheaper, fits more output) or top up OpenRouter credits to raise the cap.`
-      );
-    }
-
-    try {
-      return parseJsonContent(content);
-    } catch (err) {
-      console.error('Failed to parse LLM response as JSON. Raw content:', content);
-      throw new Error(
-        `LLM returned content but it could not be parsed as JSON. Check the browser console for the raw response. ` +
-        `(Model: ${json?.model || model}, finish_reason: ${finishReason})`
-      );
-    }
-  }
 
   function parseJsonContent(content) {
     // Strip optional ```json fences if the model added them despite instructions.
@@ -530,90 +484,9 @@ OUTPUT SCHEMA
   }
 
   /**
-   * Vision-mode extraction. Sends rendered PDF pages as images to a
-   * vision-capable model. Used when text extraction fails (scanned PDFs).
-   * Same JSON output schema as the text path.
+   * Vision-mode extraction — sends rendered PDF pages as images to a
+   * vision-capable model (Claude / GPT). Same JSON output schema as Gemini.
    */
-  /**
-   * Hybrid extraction — text + page images in one call. The LLM uses text
-   * for clean values, images for spatial layout. Same JSON schema as the
-   * other two paths.
-   */
-  async function extractWithHybrid(documentText, pageImages, { apiKey, apiKeys, model, signal, maxTokens = 8192 } = {}) {
-    if (!documentText || documentText.length < 20) {
-      throw new Error('No text could be read from this document.');
-    }
-    if (!pageImages || pageImages.length === 0) {
-      return extractWithLLM(documentText, { apiKey, apiKeys, model, signal, maxTokens });
-    }
-    const keys = (Array.isArray(apiKeys) && apiKeys.length) ? apiKeys : (apiKey ? [apiKey] : []);
-    if (!keys.length) throw new Error('No API key configured. Set one in Settings.');
-    return _withFallback(keys, (k) => _doHybridExtract(documentText, pageImages, { apiKey: k, model, signal, maxTokens }));
-  }
-
-  async function _doHybridExtract(documentText, pageImages, { apiKey, model, signal, maxTokens }) {
-    const MAX_CHARS = 60000;
-    const trimmed = documentText.length > MAX_CHARS
-      ? documentText.slice(0, MAX_CHARS) + '\n\n[document truncated for length]'
-      : documentText;
-
-    const content = [
-      {
-        type: 'text',
-        text:
-          'You are given BOTH the parsed text of this PO AND the rendered page images. ' +
-          'Use the text for clean character values (it has no OCR errors). ' +
-          'Use the images for spatial layout — which block is in which column, ' +
-          'which lines belong together visually, where the supplier ends and the ship-to begins. ' +
-          'Cross-check: if the text suggests two values belong to the same field but the image shows ' +
-          'they are in different columns, trust the image for that judgment.\n\n' +
-          '=== PARSED TEXT ===\n\n' + trimmed +
-          '\n\n=== PAGE IMAGES ===',
-      },
-      ...pageImages.map((url) => ({ type: 'image_url', image_url: { url } })),
-    ];
-
-    const body = {
-      model: model || 'anthropic/claude-sonnet-4.5',
-      temperature: 0,
-      max_tokens: maxTokens,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content },
-      ],
-    };
-
-    const res = await fetch(ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': window.location.origin,
-        'X-Title': 'Foundry PO Capture (hybrid)',
-      },
-      body: JSON.stringify(body),
-      signal,
-    });
-    if (!res.ok) {
-      let msg = `OpenRouter API ${res.status}`;
-      try { msg = (await res.json())?.error?.message || msg; } catch { /* ignore */ }
-      throw new Error(msg);
-    }
-    const json = await res.json();
-    const text = json?.choices?.[0]?.message?.content;
-    const finishReason = json?.choices?.[0]?.finish_reason;
-    if (!text) throw new Error('Empty response from LLM.');
-    if (finishReason === 'length') {
-      throw new Error('Hybrid response was cut off — try a model with more max_tokens or split the PO.');
-    }
-    try {
-      return parseJsonContent(text);
-    } catch {
-      throw new Error('Hybrid model did not return valid JSON.');
-    }
-  }
-
   async function extractWithVision(pageImages, { apiKey, apiKeys, model, signal, maxTokens = 8192 } = {}) {
     if (!pageImages || pageImages.length === 0) {
       throw new Error('No page images supplied for vision extraction.');
@@ -750,5 +623,5 @@ OUTPUT SCHEMA
   }
 
   window.App = window.App || {};
-  window.App.openrouter = { extractWithLLM, extractWithHybrid, extractWithVision, pingLLM };
+  window.App.openrouter = { extractWithVision, pingLLM };
 })();

@@ -1,26 +1,17 @@
 /* ==========================================================================
    extractor (window.App.api) — PO extraction pipeline.
 
-   ROUTING — deterministic, binary:
-     • pdfplumber returns ANY text  → HYBRID path (text + page images)
-     • pdfplumber returns no text   → VISION path (page images only)
+   ONE path for every PO — digital, scanned, or handwritten:
+     1. Get page count (cheap, client-side via pdf.js).
+     2. Render the first MAX_EXTRACT_PAGES pages to PNG via pdf.js at scale 2.0.
+     3. Send the images to the vision model (Gemma 4 by default). The model
+        reads the rendered page directly — clean character values AND spatial
+        layout (Ariba two-column headers, handwritten blocks, etc.) in one go.
 
-   For MACHINE-READABLE PDFs (almost everything Parker handles):
-     1. Get page count of the PDF (cheap, client-side).
-     2. POST the PDF to /api/extract/parse — server parses the first
-        MAX_EXTRACT_PAGES pages with pdfplumber.extract_text(layout=True)
-        plus a last-wins char dedup pass (handles overlaid template text
-        on Ariba-style PDFs).
-     3. Render the same pages as PNG via pdf.js at scale 2.0.
-     4. Send BOTH text and images to gemini-2.5-flash in one call. The
-        model uses text for clean character values (no OCR errors) and
-        the images for spatial layout grounding (which block is in which
-        column on Ariba two-column headers, etc.).
-
-   For SCANNED / image-only PDFs:
-     1. pdfplumber returns empty strings for every page.
-     2. Render the first MAX_EXTRACT_PAGES pages as PNG via pdf.js,
-        send to gemini-2.5-flash vision.
+   No server-side pdfplumber step: a text layer is absent on scans and useless
+   on handwriting, and the vision model reads a rendered page at least as well
+   as a parsed text layer. Gemma's chain-of-thought is stripped at the client
+   (gemini.js filters `thought` parts) so the output is always clean JSON.
 
    Pages 4+ on industrial PO templates are pure Standard Terms & Conditions
    boilerplate — never useful for extraction — so we cap at MAX_EXTRACT_PAGES.
@@ -40,154 +31,102 @@
   const RETRY_ATTEMPTS = 2;
   const RETRY_BASE_MS = 1500;
 
+  /** Friendly model name for status messages (falls back to the raw id). */
+  function _modelLabel(modelId) {
+    const list = (window.App.config && window.App.config.AVAILABLE_MODELS) || [];
+    const m = list.find((x) => x.id === modelId);
+    return m ? m.label : modelId;
+  }
+
   /**
-   * Run the extraction pipeline on a file.
+   * Run the extraction pipeline on a file — VISION ONLY, PAGE-PARALLEL.
    *
-   * Routing: machine-readable PDFs go through the server-side pdfplumber
-   * text path; scanned/image-only PDFs (low text density after parsing)
-   * automatically fall through to the vision path on gemini-2.5-flash.
+   * Every PO (digital, scanned, or handwritten) is rendered to page images
+   * client-side and read directly by the vision model. There is no
+   * server-side pdfplumber step: a text layer is absent on scans and useless
+   * on handwriting, and the model reads a rendered page at least as well as a
+   * parsed text layer while also seeing the spatial layout.
+   *
+   * For multi-page POs each page is read in its OWN concurrent request and the
+   * per-page results are merged (see _mergePageResults). Wall-clock is the
+   * single slowest page rather than the sum of all pages, and each page gets
+   * the model's full attention. The prompt is page-aware: it pulls header
+   * fields from whichever page shows them and returns line_items:[] for
+   * T&C / boilerplate pages, so the merge just concatenates line items and
+   * takes the first non-empty header value.
    *
    * @param {File} file
    * @param {{ onStage?: (stage: string, label?: string) => void }} opts
    */
   async function extractPO(file, { onStage } = {}) {
     onStage?.('parsing', 'Reading document');
-    const pageCount = await window.App.pdfParser.getPdfPageCount(file);
+    const pageCountFull = await window.App.pdfParser.getPdfPageCount(file);
 
     const model = window.App.config.getModel();
     const provider = window.App.config.providerForModel(model);
     const apiKeys = window.App.config.keysForProvider(provider);
     const client = provider === 'google' ? window.App.gemini : window.App.openrouter;
     if (!client) throw new Error(`Provider "${provider}" client not loaded.`);
-
-    onStage?.('extracting',
-      pageCount > MAX_EXTRACT_PAGES
-        ? `${pageCount}-page PDF — parsing first ${MAX_EXTRACT_PAGES} pages on server`
-        : `${pageCount} page${pageCount === 1 ? '' : 's'} — parsing on server`);
+    if (typeof client.extractWithVision !== 'function') {
+      throw new Error(`Model "${model}" doesn't support vision extraction. Pick a vision-capable model in Settings.`);
+    }
 
     const warnings = [];
 
-    // --- 1. Try server-side text extraction (pdfplumber) first ---
-    //
-    // Falls back to client-side pdf.js text if the server is unreachable.
-    let pages;
-    let pageCountFull = pageCount;
-    let parsedPageCount = Math.min(pageCount, MAX_EXTRACT_PAGES);
+    // --- 1. Render the first N pages to images (pdf.js, client-side) ---
+    let rendered;
     try {
-      const parsed = await window.App.backend.parsePdfOnServer(file, MAX_EXTRACT_PAGES);
-      pages = Array.isArray(parsed.pages) ? parsed.pages : [parsed.text || ''];
-      pageCountFull = parsed.page_count_full ?? pageCount;
-      parsedPageCount = parsed.page_count ?? pages.length;
+      rendered = await window.App.pdfParser.renderPagesToImages(file, {
+        maxPages: MAX_EXTRACT_PAGES,
+        scale: 2.0,        // ~144 DPI — sharp enough for fine print + handwriting
+      });
     } catch (err) {
-      console.warn('Foundry: server parse failed, falling back to pdf.js text', err);
-      warnings.push(
-        'Server PDF parse was unavailable — used browser-side text extraction. ' +
-        'Multi-column blocks may be confused; double-check addresses on this PO.'
-      );
-      const fallback = await window.App.pdfParser.readFile(file);
-      const allPages = Array.isArray(fallback.pages) ? fallback.pages : [fallback.text || ''];
-      pages = allPages.slice(0, MAX_EXTRACT_PAGES);
-      parsedPageCount = pages.length;
+      throw new Error(`Couldn't render PDF pages for extraction: ${err.message}`);
     }
+    const images = rendered.images || [];
+    if (images.length === 0) throw new Error('Could not render any pages from this PDF.');
+    const parsedPageCount = images.length;
 
-    // --- 2. Decide: text path or vision path? ---
-    //
-    // Binary check: if pdfplumber returns ANY text at all, the PDF has a
-    // real text layer and we use the text path. If it returns nothing
-    // (all pages empty after trim), it's a scan and we use vision.
-    // No threshold, no chars-per-page math.
-    const totalTextChars = pages.reduce((sum, p) => sum + (p || '').trim().length, 0);
-    const isScanned = totalTextChars === 0;
-
+    // --- 2. Vision extraction — one concurrent call PER PAGE, then merge ---
     let raw;
-    let extractionMethod = 'text';
-
-    if (isScanned) {
-      // ---- VISION PATH ----
-      // Force gemini-2.5-flash for vision — Flash-Lite is too weak at OCR.
-      // For OpenRouter the rep's selected model carries through (Claude
-      // Sonnet / Haiku / GPT — all vision-capable).
-      onStage?.('extracting',
-        `Scanned PDF (no text layer) — using vision on first ${MAX_EXTRACT_PAGES} page${MAX_EXTRACT_PAGES === 1 ? '' : 's'}`);
-
-      let rendered;
-      try {
-        rendered = await window.App.pdfParser.renderPagesToImages(file, {
-          maxPages: MAX_EXTRACT_PAGES,
-          scale: 2.0,        // ~144 DPI — sharp enough for fine print
-        });
-      } catch (err) {
-        throw new Error(`Couldn't render PDF pages for vision: ${err.message}`);
-      }
-      if (!rendered.images || rendered.images.length === 0) {
-        throw new Error('Could not render any pages from this PDF.');
-      }
-
+    if (images.length === 1) {
+      onStage?.('extracting', `Reading 1 page with ${_modelLabel(model)} (vision)`);
       raw = await _callWithRetry(
-        () => client.extractWithVision(rendered.images, { apiKeys, model }),
+        () => client.extractWithVision(images, { apiKeys, model }),
         { label: 'vision extraction' }
       );
-      extractionMethod = 'vision';
-      warnings.push(
-        `This PDF appears to be scanned (no extractable text layer). ` +
-        `Vision extraction was used on pages 1–${rendered.images.length}; ` +
-        `please double-check totals and part numbers.`
-      );
     } else {
-      // ---- HYBRID PATH (text + images in one call) ----
-      // Even though we have a clean text layer, we also render the first
-      // few pages as images and ship both views to Gemini in a single
-      // call. The model uses text for clean character values and the
-      // image for spatial layout (column boundaries, address-block
-      // ownership). On Ariba layouts the image disambiguates the
-      // supplier-vs-ship-to columns; the text guarantees clean values.
-      const fullText = pages
-        .map((p, i) => `--- Page ${i + 1} ---\n${p}`)
-        .join('\n\n');
-
-      if (parsedPageCount < pageCountFull) {
-        onStage?.('extracting',
-          `Parsed pages 1–${parsedPageCount} of ${pageCountFull} (rest is T&Cs) — rendering pages for layout grounding`);
-      } else {
-        onStage?.('extracting',
-          `Rendering ${parsedPageCount} page${parsedPageCount === 1 ? '' : 's'} for layout grounding`);
+      onStage?.('extracting',
+        `Reading ${parsedPageCount} pages in parallel with ${_modelLabel(model)} (vision)`);
+      const settled = await Promise.allSettled(
+        images.map((img, i) => _callWithRetry(
+          () => client.extractWithVision([img], { apiKeys, model }),
+          { label: `vision page ${i + 1}` }
+        ))
+      );
+      const pageResults = settled.map((s) => (s.status === 'fulfilled' ? s.value : null));
+      if (pageResults.every((r) => r === null)) {
+        const firstErr = settled.find((s) => s.status === 'rejected');
+        throw new Error(firstErr?.reason?.message || 'Vision extraction failed on every page.');
       }
-
-      let pageImages = [];
-      try {
-        const rendered = await window.App.pdfParser.renderPagesToImages(file, {
-          maxPages: MAX_EXTRACT_PAGES,
-          scale: 2.0,
-        });
-        pageImages = rendered.images || [];
-      } catch (err) {
-        console.warn('Foundry: page rendering failed, falling back to text-only', err);
+      const failedPages = settled
+        .map((s, i) => (s.status === 'rejected' ? i + 1 : null))
+        .filter((x) => x !== null);
+      if (failedPages.length) {
         warnings.push(
-          'Could not render page images for hybrid extraction — used text-only. ' +
-          'Column-heavy layouts may need a manual check.'
+          `Page${failedPages.length === 1 ? '' : 's'} ${failedPages.join(', ')} couldn't be read ` +
+          `(the rest were). Double-check for any missing line items.`
         );
       }
-
-      onStage?.('extracting',
-        `Extracting fields with ${provider === 'google' ? 'Gemini 2.5 Flash' : 'Claude/GPT'} (text + image)`);
-
-      // If we have images, use hybrid; otherwise gracefully degrade to text-only.
-      const useHybrid = pageImages.length > 0 && typeof client.extractWithHybrid === 'function';
-      raw = await _callWithRetry(
-        () => useHybrid
-          ? client.extractWithHybrid(fullText, pageImages, { apiKeys, model })
-          : client.extractWithLLM(fullText, { apiKeys, model }),
-        { label: useHybrid ? 'hybrid extraction' : 'text extraction' }
-      );
-      extractionMethod = useHybrid ? 'hybrid' : 'text';
+      raw = _mergePageResults(pageResults);
     }
 
     onStage?.('validating', 'Validating');
     const normalized = normalize(raw);
-    normalized.extraction_method = extractionMethod;
+    normalized.extraction_method = 'vision';
 
-    // If we trimmed pages, note that the rep should glance past page 3
-    // in their copy of the PDF in case a line item lives there.
+    // If we trimmed pages, note that the rep should glance past the last
+    // parsed page in their copy of the PDF in case a line item lives there.
     if (parsedPageCount < pageCountFull) {
       warnings.push(
         `Pages ${parsedPageCount + 1}–${pageCountFull} of ${pageCountFull} were skipped ` +
@@ -197,6 +136,64 @@
     }
     if (warnings.length) normalized._warnings = warnings;
     return normalized;
+  }
+
+  // Header fields that belong to the PO as a whole (not per line). On a merge
+  // we take the FIRST non-empty value in page order — the header normally sits
+  // on page 1, and a continuation page legitimately leaves these blank.
+  const _MERGE_SCALARS = [
+    'po_number', 'po_date', 'revision', 'customer', 'customer_address', 'supplier',
+    'supplier_code', 'supplier_address', 'bill_to', 'ship_to', 'payment_terms',
+    'freight_terms', 'ship_via', 'fob_terms', 'buyer', 'buyer_email', 'buyer_phone',
+    'receiving_contact', 'receiving_contact_phone', 'quote_number', 'contract_number',
+    'currency',
+  ];
+
+  /**
+   * Merge per-page extraction results (in page order) into one PO object.
+   *   - scalar header fields → first non-empty value across pages
+   *   - line_items           → concatenated in page order (re-sequenced later)
+   *   - total                → max(largest reported total, sum of line amounts);
+   *                            handles both an explicit grand total and the case
+   *                            where line items span pages with only subtotals
+   *   - notes                → unique non-empty values, joined
+   */
+  function _mergePageResults(pageResults) {
+    const pages = pageResults.filter(Boolean);
+    if (pages.length === 1) return pages[0];
+
+    const merged = {};
+    for (const f of _MERGE_SCALARS) {
+      let val = '';
+      for (const p of pages) {
+        const v = p && p[f] != null ? String(p[f]).trim() : '';
+        if (v) { val = p[f]; break; }
+      }
+      merged[f] = val;
+    }
+
+    const lines = [];
+    for (const p of pages) {
+      if (Array.isArray(p.line_items)) lines.push(...p.line_items);
+    }
+    merged.line_items = lines;
+
+    let maxReported = 0;
+    for (const p of pages) {
+      const t = Number(p.total) || 0;
+      if (t > maxReported) maxReported = t;
+    }
+    const lineSum = lines.reduce((s, it) => s + (Number(it && it.amount) || 0), 0);
+    merged.total = Math.max(maxReported, +lineSum.toFixed(2));
+
+    const notes = [];
+    for (const p of pages) {
+      const n = p.notes != null ? String(p.notes).trim() : '';
+      if (n && !notes.includes(n)) notes.push(n);
+    }
+    merged.notes = notes.join('\n');
+
+    return merged;
   }
 
   // ----------------------------------------------------------------------
@@ -234,9 +231,9 @@
   // Normalize raw LLM output into our PO schema
   // ----------------------------------------------------------------------
 
-  // Common UOMs that get truncated to a single character by narrow column
-  // widths in pdfplumber's layout-preserving text extraction. When the LLM
-  // returns the truncated form, expand it back. Order matters — we only
+  // Common UOMs that can come back truncated to a single character when the
+  // unit sits in a cramped column the vision model reads tightly. When the
+  // LLM returns the truncated form, expand it back. Order matters — we only
   // expand single-character or two-character codes.
   const UOM_TRUNCATIONS = {
     E: 'EA',    // EACH
@@ -257,20 +254,20 @@
     return u;
   }
 
-  // ----- field normalization is now in SYSTEM_PROMPT -----
+  // ----- value normalization is the LLM's job, not ours -----
   //
-  // The LLM is instructed to emit canonical formats directly (phone,
-  // email, currency, multi-line addresses, supplier_code, UOM). We
-  // intentionally do NOT post-process those values — the prompt is
-  // the single source of truth for formatting rules. Reasons:
-  //   - one rule set instead of two layers that can drift
-  //   - the model already understands phone/email/address shapes
-  //   - simpler code, easier to audit
-  // What we still do at the boundary (kept below):
-  //   - normUom: rescue pdfplumber's 1-char column-truncation
-  //     artifact ("E" -> "EA"); not an LLM job
-  //   - normDate: tolerant date parsing for back-compat / edit-form
-  //     inputs that arrive in MM/DD/YYYY shape
+  // The prompt makes Gemma emit ready-to-store canonical values directly:
+  // dates as YYYY-MM-DD, numbers as plain decimals, qty x unit_price = amount,
+  // the grand total, uppercase UOM, phone/email/address shapes. We do NOT
+  // re-format those values here — the prompt is the single source of truth.
+  // What normalize() does below is only the things that are NOT formatting:
+  //   - type-coercion: Number()/String() so the UI + DB get the right types
+  //   - recovery fallback: if the model still left a qty/price/amount at 0,
+  //     derive it from the other two (and sum lines if total is missing) so a
+  //     stray miss doesn't get saved as a zero
+  //   - normDate / normUom: pass-through for canonical values; they only ACT
+  //     on a non-canonical leftover (a rare model miss, or an edit-form date
+  //     typed as MM/DD/YYYY) so the date input / UOM cell never breaks
 
   function normalize(data) {
     const items = Array.isArray(data?.line_items) ? data.line_items : [];
