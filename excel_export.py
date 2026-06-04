@@ -50,8 +50,10 @@ def build_workbook(records: Iterable[dict]) -> io.BytesIO:
         ("PO Date", 12),
         ("Revision", 8),
         ("Customer", 28),
+        ("Customer Address", 36),
         ("Supplier", 28),
         ("Supplier #", 12),
+        ("Supplier Address", 36),
         ("Bill To", 36),
         ("Ship To", 36),
         ("Payment Terms", 16),
@@ -88,8 +90,10 @@ def build_workbook(records: Iterable[dict]) -> io.BytesIO:
         put(rec.get("po_date", ""))
         put(rec.get("revision", ""))
         put(rec.get("customer", ""))
+        put(_flatten(rec.get("customer_address")))
         put(rec.get("supplier", ""))
         put(rec.get("supplier_code", ""))
+        put(_flatten(rec.get("supplier_address")))
         put(_flatten(rec.get("bill_to")))
         put(_flatten(rec.get("ship_to")))
         put(rec.get("payment_terms", ""))
