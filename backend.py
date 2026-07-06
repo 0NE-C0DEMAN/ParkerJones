@@ -71,6 +71,55 @@ FILES_DIR.mkdir(exist_ok=True)
 @app.on_event("startup")
 def _startup():
     db.init()
+    _maybe_recover_admin()
+
+
+def _maybe_recover_admin():
+    """One-time admin account recovery, gated ENTIRELY by the
+    FOUNDRY_ADMIN_RESET secret. Completely inert unless that env var is set —
+    deploying this code changes nothing on its own.
+
+    Format:  FOUNDRY_ADMIN_RESET = "new_email:new_password"
+
+    On boot, if the secret is present, the OLDEST admin account's email +
+    password are reset to those values and the account is re-activated. This is
+    the owner's break-glass path when locked out (forgot the password, or
+    changed the admin email and forgot it — the live SQLite in the HF bucket
+    isn't reachable any other way).
+
+    IMPORTANT: remove the secret after logging in — otherwise it re-applies on
+    every restart and would revert any later email/password change.
+    """
+    spec = (os.environ.get("FOUNDRY_ADMIN_RESET") or "").strip()
+    if not spec:
+        return
+    if ":" not in spec:
+        print("[admin-recover] FOUNDRY_ADMIN_RESET set but not 'email:password' — skipping.")
+        return
+    new_email, new_password = spec.split(":", 1)
+    new_email = new_email.strip().lower()
+    new_password = new_password.strip()
+    if not new_email or len(new_password) < 6:
+        print("[admin-recover] email empty or password shorter than 6 chars — skipping.")
+        return
+    try:
+        admins = [u for u in db.list_users() if u.get("role") == "admin"]
+        if not admins:
+            print("[admin-recover] no admin account found — skipping.")
+            return
+        target = admins[0]  # list_users is ORDER BY created_at → oldest admin
+        old_email = target.get("email")
+        try:
+            db.update_user_email(target["id"], new_email)
+        except ValueError as e:
+            print(f"[admin-recover] email not changed ({e}) — resetting password only.")
+        db.set_user_active(target["id"], True)
+        auth.admin_set_password(target["id"], new_password)
+        print(f"[admin-recover] admin {target['id']} ({old_email}) email->{new_email}, "
+              f"password reset, account active. REMOVE the FOUNDRY_ADMIN_RESET secret now "
+              f"so it stops re-applying on every restart.")
+    except Exception as e:
+        print(f"[admin-recover] failed: {e}")
 
 
 # ============================================================================
